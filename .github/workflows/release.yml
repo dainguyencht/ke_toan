@@ -1,0 +1,73 @@
+name: Build & Release
+
+# Chạy khi:
+# - Push tag v* (vd: v0.1.0) → tạo GitHub Release với installer
+# - Workflow_dispatch (chạy thủ công từ tab Actions)
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+            name: 'macOS (Apple Silicon)'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+            name: 'macOS (Intel)'
+          - platform: 'windows-latest'
+            args: ''
+            name: 'Windows x64'
+
+    runs-on: ${{ matrix.platform }}
+    name: Build ${{ matrix.name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Build with Tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Kế Toán v__VERSION__'
+          releaseBody: |
+            ## Cài đặt
+
+            - **Windows**: tải `.msi` hoặc `.exe`, double-click cài
+            - **macOS Apple Silicon (M1/M2/M3)**: tải `.dmg` chứa `aarch64`
+            - **macOS Intel**: tải `.dmg` chứa `x64`
+
+            > macOS chưa code-signing: bấm chuột phải → Open lần đầu để bypass Gatekeeper.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

@@ -1,0 +1,106 @@
+import { getDb } from "./client";
+import type { CashTransaction } from "@/domain/types";
+
+export type CashFilter = {
+  type?: "in" | "out" | "all";
+  from?: string | null; // ISO date 'YYYY-MM-DD'
+  to?: string | null;
+};
+
+export type CashRow = CashTransaction & {
+  source_label: string | null; // mã đơn, hoặc "KH: <tên>" / "NCC: <tên>"
+};
+
+export type CashInput = {
+  type: "in" | "out";
+  amount: number;
+  category: string | null;
+  note?: string | null;
+};
+
+export type CashSummary = {
+  total_in: number;
+  total_out: number;
+  balance: number;
+};
+
+function buildFilterClause(f: CashFilter): { clause: string; params: unknown[] } {
+  const conds: string[] = [];
+  const params: unknown[] = [];
+  if (f.type && f.type !== "all") {
+    conds.push("type = ?");
+    params.push(f.type);
+  }
+  if (f.from) {
+    conds.push("date(created_at) >= date(?)");
+    params.push(f.from);
+  }
+  if (f.to) {
+    conds.push("date(created_at) <= date(?)");
+    params.push(f.to);
+  }
+  return {
+    clause: conds.length ? "WHERE " + conds.join(" AND ") : "",
+    params,
+  };
+}
+
+export async function listCashTransactions(filter: CashFilter = {}): Promise<CashRow[]> {
+  const db = await getDb();
+  const { clause, params } = buildFilterClause(filter);
+  return await db.select<CashRow[]>(
+    `SELECT
+       ct.*,
+       CASE ct.ref_table
+         WHEN 'orders'    THEN (SELECT code FROM orders WHERE id = ct.ref_id)
+         WHEN 'customers' THEN 'KH: '  || (SELECT name FROM customers WHERE id = ct.ref_id)
+         WHEN 'suppliers' THEN 'NCC: ' || (SELECT name FROM suppliers WHERE id = ct.ref_id)
+       END AS source_label
+     FROM cash_transactions ct
+     ${clause}
+     ORDER BY ct.created_at DESC
+     LIMIT 500`,
+    params,
+  );
+}
+
+export async function getCashSummary(filter: CashFilter = {}): Promise<CashSummary> {
+  const db = await getDb();
+  const { clause, params } = buildFilterClause({ ...filter, type: "all" });
+  const rows = await db.select<{ type: "in" | "out"; total: number }[]>(
+    `SELECT type, COALESCE(SUM(amount), 0) AS total
+     FROM cash_transactions
+     ${clause}
+     GROUP BY type`,
+    params,
+  );
+  const total_in = rows.find((r) => r.type === "in")?.total ?? 0;
+  const total_out = rows.find((r) => r.type === "out")?.total ?? 0;
+  return { total_in, total_out, balance: total_in - total_out };
+}
+
+export async function createCashTransaction(input: CashInput): Promise<number> {
+  const db = await getDb();
+  if (input.amount <= 0) throw new Error("Số tiền phải > 0");
+  const result = await db.execute(
+    `INSERT INTO cash_transactions (type, amount, category, note)
+     VALUES (?, ?, ?, ?)`,
+    [input.type, input.amount, input.category ?? null, input.note ?? null],
+  );
+  return Number(result.lastInsertId);
+}
+
+export async function deleteCashTransaction(id: number): Promise<void> {
+  const db = await getDb();
+  // Chỉ cho xóa các giao dịch nhập tay (không có ref_table='orders')
+  const rows = await db.select<{ ref_table: string | null }[]>(
+    "SELECT ref_table FROM cash_transactions WHERE id = ?",
+    [id],
+  );
+  if (rows[0]?.ref_table) {
+    throw new Error(
+      "Không thể xóa giao dịch tự sinh từ đơn hàng. Hãy hủy đơn hàng tương ứng.",
+    );
+  }
+  await db.execute("DELETE FROM cash_transactions WHERE id = ?", [id]);
+}
