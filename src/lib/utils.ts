@@ -44,3 +44,19 @@ export function daysAgo(n: number): string {
   d.setDate(d.getDate() - n);
   return toISODate(d);
 }
+
+/** Ngày đầu tháng hiện tại (local) */
+export function startOfMonth(d: Date = new Date()): string {
+  return toISODate(new Date(d.getFullYear(), d.getMonth(), 1));
+}
+
+/** Ngày đầu quý hiện tại (Q1=tháng 1, Q2=tháng 4, Q3=tháng 7, Q4=tháng 10) */
+export function startOfQuarter(d: Date = new Date()): string {
+  const q = Math.floor(d.getMonth() / 3) * 3;
+  return toISODate(new Date(d.getFullYear(), q, 1));
+}
+
+/** Ngày 1/1 năm hiện tại */
+export function startOfYear(d: Date = new Date()): string {
+  return toISODate(new Date(d.getFullYear(), 0, 1));
+}

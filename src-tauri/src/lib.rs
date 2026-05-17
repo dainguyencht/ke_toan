@@ -43,6 +43,11 @@ fn restore_db(app: AppHandle, source: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn save_bytes(path: String, bytes: Vec<u8>) -> Result<(), String> {
+    fs::write(PathBuf::from(&path), &bytes).map_err(|e| format!("Lỗi ghi file: {e}"))
+}
+
+#[tauri::command]
 fn list_auto_backups(app: AppHandle) -> Result<Vec<String>, String> {
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let backup_dir = data_dir.join(BACKUP_DIR);
@@ -147,6 +152,7 @@ pub fn run() {
             backup_db,
             restore_db,
             list_auto_backups,
+            save_bytes,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

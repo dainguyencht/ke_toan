@@ -1,12 +1,14 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2, Search, FileSpreadsheet } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, FileSpreadsheet, FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import { Abbr } from "@/components/ui/abbr";
 import { ProductForm } from "@/components/products/ProductForm";
 import { ImportProductsDialog } from "@/components/products/ImportProductsDialog";
 import { useArchiveProduct, useProducts } from "@/hooks/useProducts";
 import { formatVND } from "@/lib/utils";
+import { exportProductsToExcel } from "@/lib/excelExport";
 import type { Product } from "@/domain/types";
 import { toast } from "sonner";
 
@@ -47,6 +49,26 @@ export default function Products() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={async () => {
+              if (!products || products.length === 0) {
+                toast.error("Không có sản phẩm để xuất");
+                return;
+              }
+              const res = await exportProductsToExcel(products);
+              if (res.ok) {
+                toast.success(`Đã xuất ${res.count} sản phẩm: ${res.path}`);
+              } else if (res.reason === "error") {
+                toast.error(`Lỗi xuất: ${res.message}`);
+              }
+              // cancelled → không hiện gì
+            }}
+            disabled={!products || products.length === 0}
+          >
+            <FileDown className="w-4 h-4" />
+            Xuất Excel
+          </Button>
           <Button variant="outline" onClick={() => setOpenImport(true)}>
             <FileSpreadsheet className="w-4 h-4" />
             Nhập từ Excel
@@ -84,9 +106,16 @@ export default function Products() {
           <Table>
             <THead>
               <TR>
-                <TH>SKU</TH>
+                <TH>
+                  <Abbr title="Stock Keeping Unit - Mã định danh duy nhất của sản phẩm">
+                    SKU
+                  </Abbr>
+                </TH>
                 <TH>Tên sản phẩm</TH>
                 <TH>Mã vạch</TH>
+                <TH className="text-right">
+                  <Abbr title="Giá vốn - Giá nhập hàng từ NCC">Giá vốn</Abbr>
+                </TH>
                 <TH className="text-right">Giá bán</TH>
                 <TH className="text-right">Tồn kho</TH>
                 <TH className="w-20"></TH>
@@ -98,7 +127,12 @@ export default function Products() {
                   <TD className="font-mono text-xs">{p.sku}</TD>
                   <TD className="font-medium">{p.name}</TD>
                   <TD className="text-neutral-500 text-xs">{p.barcode ?? "-"}</TD>
-                  <TD className="text-right">{formatVND(p.price_sell)}</TD>
+                  <TD className="text-right text-neutral-500 tabular-nums">
+                    {formatVND(p.price_cost)}
+                  </TD>
+                  <TD className="text-right tabular-nums">
+                    {formatVND(p.price_sell)}
+                  </TD>
                   <TD className="text-right">
                     <span
                       className={

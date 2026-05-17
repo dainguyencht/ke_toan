@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, ShoppingCart } from "lucide-react";
+import { Plus, ShoppingCart, FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -8,8 +8,10 @@ import { PurchaseForm } from "@/components/orders/PurchaseForm";
 import { SaleForm } from "@/components/orders/SaleForm";
 import { useOrders } from "@/hooks/useOrders";
 import { formatVND, formatDate } from "@/lib/utils";
+import { exportOrdersToExcel } from "@/lib/excelExport";
 import type { OrderListRow } from "@/db/orders";
 import type { OrderStatus, OrderType } from "@/domain/types";
+import { toast } from "sonner";
 
 const STATUS_LABEL: Record<OrderStatus, { text: string; tone: string }> = {
   draft: { text: "Nháp", tone: "text-neutral-500 bg-neutral-100" },
@@ -25,11 +27,37 @@ const TYPE_LABEL: Record<OrderType, string> = {
   return: "Trả",
 };
 
+const TAB_LABEL: Record<"all" | OrderType, string> = {
+  all: "Tất cả",
+  sale: "Phiếu bán",
+  purchase: "Phiếu nhập",
+  return: "Phiếu trả",
+};
+
 export default function Orders() {
   const [openPurchase, setOpenPurchase] = useState(false);
   const [openSale, setOpenSale] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"all" | OrderType>("sale");
+
+  // Lấy data của tab đang active để export. React Query dedupe nên không fetch trùng.
+  const { data: ordersForExport = [] } = useOrders(activeTab);
+
+  const handleExport = async () => {
+    if (ordersForExport.length === 0) {
+      toast.error("Không có đơn để xuất");
+      return;
+    }
+    const res = await exportOrdersToExcel(ordersForExport, TAB_LABEL[activeTab]);
+    if (res.ok) {
+      toast.success(
+        `Đã xuất ${res.count} đơn (${TAB_LABEL[activeTab]}): ${res.path}`,
+      );
+    } else if (res.reason === "error") {
+      toast.error(`Lỗi xuất: ${res.message}`);
+    }
+    // cancelled → không hiện gì
+  };
 
   return (
     <div className="p-6 space-y-4">
@@ -41,6 +69,15 @@ export default function Orders() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={handleExport}
+            disabled={ordersForExport.length === 0}
+            title={`Xuất ${TAB_LABEL[activeTab]} đang xem`}
+          >
+            <FileDown className="w-4 h-4" />
+            Xuất Excel
+          </Button>
           <Button variant="outline" onClick={() => setOpenPurchase(true)}>
             <Plus className="w-4 h-4" />
             Phiếu nhập

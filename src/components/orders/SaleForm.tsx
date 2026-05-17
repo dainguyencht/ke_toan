@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import { Abbr } from "@/components/ui/abbr";
 import { ContactPicker } from "@/components/contacts/ContactPicker";
 import { ProductPicker } from "@/components/products/ProductPicker";
 import { useCreateSale } from "@/hooks/useOrders";
@@ -131,7 +132,7 @@ export function SaleForm({ open, onOpenChange }: Props) {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Khách hàng">
+            <Field label="Khách hàng (KH)">
               <ContactPicker
                 kind="customer"
                 value={customerId}
@@ -164,11 +165,19 @@ export function SaleForm({ open, onOpenChange }: Props) {
               <Table>
                 <THead>
                   <TR>
-                    <TH>SKU</TH>
+                    <TH>
+                      <Abbr title="Stock Keeping Unit - Mã định danh sản phẩm">
+                        SKU
+                      </Abbr>
+                    </TH>
                     <TH>Tên sản phẩm</TH>
-                    <TH className="w-20 text-right">Tồn</TH>
-                    <TH className="w-24 text-right">SL bán</TH>
-                    <TH className="w-32 text-right">Đơn giá</TH>
+                    <TH className="w-20 text-right">
+                      <Abbr title="Số lượng còn trong kho">Tồn</Abbr>
+                    </TH>
+                    <TH className="w-24 text-right">
+                      <Abbr title="Số lượng bán">SL bán</Abbr>
+                    </TH>
+                    <TH className="w-32 text-right">Đơn giá bán</TH>
                     <TH className="w-32 text-right">Thành tiền</TH>
                     <TH className="w-12"></TH>
                   </TR>

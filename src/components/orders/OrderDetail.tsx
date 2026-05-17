@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -8,7 +9,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import { Abbr } from "@/components/ui/abbr";
 import { useCancelOrder, useOrder, useOrderItems } from "@/hooks/useOrders";
+import { PayOrderDebtDialog } from "./PayOrderDebtDialog";
 import { cn, formatDateTime, formatVND } from "@/lib/utils";
 import type { OrderStatus, OrderType } from "@/domain/types";
 import { toast } from "sonner";
@@ -37,6 +40,7 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
   const { data: order, isLoading } = useOrder(orderId);
   const { data: items = [] } = useOrderItems(orderId);
   const cancel = useCancelOrder();
+  const [payOpen, setPayOpen] = useState(false);
 
   const handleCancel = async () => {
     if (!order) return;
@@ -60,6 +64,10 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
   const debt = order ? Math.max(0, order.total - order.paid) : 0;
   const isCancelled = order?.status === "cancelled";
   const canCancel = order && !isCancelled && order.type !== "return";
+  // TODO: tạm tắt — bật lại bằng cách restore điều kiện này:
+  //   order && !isCancelled && order.type !== "return" && debt > 0
+  const canPay = false;
+  const payVerb = order?.type === "sale" ? "Thu nợ" : "Trả nợ";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -111,12 +119,22 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
               <Table>
                 <THead>
                   <TR>
-                    <TH>SKU</TH>
+                    <TH>
+                      <Abbr title="Stock Keeping Unit - Mã định danh sản phẩm">
+                        SKU
+                      </Abbr>
+                    </TH>
                     <TH>Sản phẩm</TH>
-                    <TH className="text-right">SL</TH>
+                    <TH className="text-right">
+                      <Abbr title="Số lượng">SL</Abbr>
+                    </TH>
                     <TH className="text-right">Đơn giá</TH>
                     {order.type === "sale" && (
-                      <TH className="text-right">Giá vốn</TH>
+                      <TH className="text-right">
+                        <Abbr title="Giá vốn - Giá nhập hàng. Dùng tính lãi gộp.">
+                          Giá vốn
+                        </Abbr>
+                      </TH>
                     )}
                     <TH className="text-right">Thành tiền</TH>
                   </TR>
@@ -160,6 +178,19 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
                     tone="amber"
                   />
                 )}
+                {canPay && (
+                  <div className="pt-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setPayOpen(true)}
+                      className="w-full text-amber-700 border-amber-300 hover:bg-amber-50 hover:text-amber-800"
+                    >
+                      {payVerb} cho đơn này
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -187,6 +218,8 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <PayOrderDebtDialog open={payOpen} onOpenChange={setPayOpen} order={order ?? null} />
     </Dialog>
   );
 }

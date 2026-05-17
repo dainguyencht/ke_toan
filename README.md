@@ -1,4 +1,4 @@
-# Kế Toán - Quản lý hộ kinh doanh
+# Sổ Sách - Quản lý hộ kinh doanh
 
 Ứng dụng desktop (Windows + macOS) dành cho hộ kinh doanh bán lẻ nhỏ. Quản lý
 sản phẩm, kho tồn, đơn hàng, khách hàng, công nợ, sổ quỹ và báo cáo cơ bản.

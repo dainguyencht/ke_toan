@@ -5,6 +5,8 @@ export type DashboardStats = {
   revenue_7d: number;
   orders_today: number;
   orders_7d: number;
+  profit_today: number;
+  profit_7d: number;
   debt_receivable: number;
   debt_payable: number;
   cash_balance: number;
@@ -17,6 +19,8 @@ export async function getDashboardStats(lowStockThreshold = 5): Promise<Dashboar
   const [
     revenueTodayRows,
     revenue7dRows,
+    profitTodayRows,
+    profit7dRows,
     debtRecvRows,
     debtPayRows,
     cashRows,
@@ -33,6 +37,20 @@ export async function getDashboardStats(lowStockThreshold = 5): Promise<Dashboar
        FROM orders
        WHERE type='sale' AND status != 'cancelled'
          AND date(created_at) >= date('now','localtime','-6 days')`,
+    ),
+    db.select<{ profit: number }[]>(
+      `SELECT COALESCE(SUM(i.total) - SUM(i.qty * i.cost), 0) AS profit
+       FROM order_items i
+       JOIN orders o ON o.id = i.order_id
+       WHERE o.type='sale' AND o.status != 'cancelled'
+         AND date(o.created_at,'localtime') = date('now','localtime')`,
+    ),
+    db.select<{ profit: number }[]>(
+      `SELECT COALESCE(SUM(i.total) - SUM(i.qty * i.cost), 0) AS profit
+       FROM order_items i
+       JOIN orders o ON o.id = i.order_id
+       WHERE o.type='sale' AND o.status != 'cancelled'
+         AND date(o.created_at,'localtime') >= date('now','localtime','-6 days')`,
     ),
     db.select<{ total: number }[]>(
       `SELECT COALESCE(SUM(debt_amount), 0) AS total FROM customers`,
@@ -61,6 +79,8 @@ export async function getDashboardStats(lowStockThreshold = 5): Promise<Dashboar
     orders_today: revenueTodayRows[0]?.count ?? 0,
     revenue_7d: revenue7dRows[0]?.total ?? 0,
     orders_7d: revenue7dRows[0]?.count ?? 0,
+    profit_today: profitTodayRows[0]?.profit ?? 0,
+    profit_7d: profit7dRows[0]?.profit ?? 0,
     debt_receivable: debtRecvRows[0]?.total ?? 0,
     debt_payable: debtPayRows[0]?.total ?? 0,
     cash_balance: cashIn - cashOut,
@@ -137,7 +157,10 @@ export type RevenueByDay = {
   orders: number;
 };
 
-export async function getRevenueByDay(days: number): Promise<RevenueByDay[]> {
+export async function getRevenueByDay(
+  fromDate: string,
+  toDate: string,
+): Promise<RevenueByDay[]> {
   const db = await getDb();
   return await db.select<RevenueByDay[]>(
     `SELECT
@@ -146,11 +169,52 @@ export async function getRevenueByDay(days: number): Promise<RevenueByDay[]> {
        COUNT(*)                       AS orders
      FROM orders
      WHERE type='sale' AND status != 'cancelled'
-       AND date(created_at,'localtime') >= date('now','localtime',?)
+       AND date(created_at,'localtime') BETWEEN date(?) AND date(?)
      GROUP BY date
      ORDER BY date DESC`,
-    [`-${days - 1} days`],
+    [fromDate, toDate],
   );
+}
+
+export type RevenueTotal = {
+  revenue: number;
+  orders: number;
+  first_order_date: string | null;
+};
+
+/** Tổng doanh thu tích lũy (từ trước đến giờ, bỏ qua đơn cancelled) */
+export async function getRevenueTotal(): Promise<RevenueTotal> {
+  const db = await getDb();
+  const rows = await db.select<RevenueTotal[]>(
+    `SELECT
+       COALESCE(SUM(total), 0)        AS revenue,
+       COUNT(*)                        AS orders,
+       MIN(date(created_at,'localtime')) AS first_order_date
+     FROM orders
+     WHERE type='sale' AND status != 'cancelled'`,
+  );
+  return rows[0] ?? { revenue: 0, orders: 0, first_order_date: null };
+}
+
+export type ProfitTotal = {
+  revenue: number;
+  cost: number;
+  profit: number;
+};
+
+/** Lãi gộp tích lũy (từ trước đến giờ) */
+export async function getProfitTotal(): Promise<ProfitTotal> {
+  const db = await getDb();
+  const rows = await db.select<ProfitTotal[]>(
+    `SELECT
+       COALESCE(SUM(i.total), 0)            AS revenue,
+       COALESCE(SUM(i.qty * i.cost), 0)     AS cost,
+       COALESCE(SUM(i.total) - SUM(i.qty * i.cost), 0) AS profit
+     FROM order_items i
+     JOIN orders o ON o.id = i.order_id
+     WHERE o.type='sale' AND o.status != 'cancelled'`,
+  );
+  return rows[0] ?? { revenue: 0, cost: 0, profit: 0 };
 }
 
 export type ProfitReport = {

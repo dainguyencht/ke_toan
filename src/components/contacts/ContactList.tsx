@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2, Search, Phone, HandCoins } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import { Abbr } from "@/components/ui/abbr";
 import { ContactForm } from "./ContactForm";
 import { PayDebtDialog } from "./PayDebtDialog";
 import { useContacts, useDeleteContact } from "@/hooks/useContacts";
@@ -82,10 +83,20 @@ export function ContactList({ kind }: Props) {
             <THead>
               <TR>
                 <TH>Tên</TH>
-                <TH>SĐT</TH>
+                <TH>
+                  <Abbr title="Số điện thoại">SĐT</Abbr>
+                </TH>
                 <TH>Địa chỉ</TH>
                 <TH className="text-right">
-                  {kind === "customer" ? "Công nợ phải thu" : "Công nợ phải trả"}
+                  {kind === "customer" ? (
+                    <Abbr title="Số tiền khách hàng còn nợ shop">
+                      Công nợ phải thu
+                    </Abbr>
+                  ) : (
+                    <Abbr title="Số tiền shop còn nợ nhà cung cấp">
+                      Công nợ phải trả
+                    </Abbr>
+                  )}
                 </TH>
                 <TH className="w-20"></TH>
               </TR>
@@ -125,13 +136,12 @@ export function ContactList({ kind }: Props) {
                     <div className="flex justify-end gap-1">
                       {c.debt_amount > 0 && (
                         <Button
-                          size="icon"
-                          variant="ghost"
+                          size="sm"
+                          variant="outline"
                           onClick={() => setPayingDebt(c)}
-                          title={kind === "customer" ? "Thu nợ" : "Trả nợ"}
-                          className="text-amber-600 hover:text-amber-700"
+                          className="text-amber-700 border-amber-300 hover:bg-amber-50 hover:text-amber-800"
                         >
-                          <HandCoins className="w-4 h-4" />
+                          {kind === "customer" ? "Thu nợ" : "Trả nợ"}
                         </Button>
                       )}
                       <Button

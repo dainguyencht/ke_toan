@@ -7,6 +7,7 @@ import {
   ShoppingCart,
   PackageX,
   Trophy,
+  BadgePercent,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
@@ -25,7 +26,7 @@ export default function Dashboard() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Bảng điều khiển</h1>
+        <h1 className="text-2xl font-semibold">Tổng quan</h1>
         <p className="text-sm text-neutral-500 mt-1">
           Tổng quan hoạt động của cửa hàng
         </p>
@@ -70,7 +71,31 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Hàng 2: Công nợ */}
+      {/* Hàng 2: Lãi gộp */}
+      <div>
+        <h2 className="text-sm font-medium text-neutral-500 uppercase tracking-wide mb-2">
+          Lãi gộp
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <KpiCard
+            label="Hôm nay"
+            value={formatVND(stats?.profit_today ?? 0)}
+            sub="= Doanh thu − Giá vốn"
+            icon={<BadgePercent className="w-5 h-5" />}
+            tone={(stats?.profit_today ?? 0) >= 0 ? "green" : "red"}
+          />
+          <KpiCard
+            label="7 ngày qua"
+            value={formatVND(stats?.profit_7d ?? 0)}
+            sub="Chưa trừ chi phí khác"
+            icon={<BadgePercent className="w-5 h-5" />}
+            tone={(stats?.profit_7d ?? 0) >= 0 ? "green" : "red"}
+            href="/reports"
+          />
+        </div>
+      </div>
+
+      {/* Hàng 3: Công nợ */}
       <div>
         <h2 className="text-sm font-medium text-neutral-500 uppercase tracking-wide mb-2">
           Công nợ

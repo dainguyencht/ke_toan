@@ -6,6 +6,7 @@ import {
   getOrderById,
   getOrderItems,
   listOrders,
+  payOrderDebt,
   type PurchaseInput,
   type SaleInput,
 } from "@/db/orders";
@@ -33,6 +34,27 @@ export function useOrder(id: number | null) {
     queryKey: [...KEY, "detail", id],
     queryFn: () => (id ? getOrderById(id) : Promise.resolve(null)),
     enabled: id != null,
+  });
+}
+
+export function usePayOrderDebt() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      orderId,
+      amount,
+      note,
+    }: {
+      orderId: number;
+      amount: number;
+      note?: string | null;
+    }) => payOrderDebt(orderId, amount, note),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY });
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+      qc.invalidateQueries({ queryKey: ["cash"] });
+      qc.invalidateQueries({ queryKey: ["reports"] });
+    },
   });
 }
 

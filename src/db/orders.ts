@@ -206,6 +206,67 @@ export async function createSale(input: SaleInput): Promise<number> {
   return orderId;
 }
 
+/**
+ * Thu/trả thêm tiền cho 1 đơn hàng cụ thể.
+ * - Cập nhật order.paid, status (→ 'paid' nếu trả đủ)
+ * - Insert cash_transactions (in cho sale, out cho purchase) gắn vào đơn
+ * - Giảm debt_amount của KH/NCC tương ứng
+ */
+export async function payOrderDebt(
+  orderId: number,
+  amount: number,
+  note?: string | null,
+): Promise<void> {
+  if (amount <= 0) throw new Error("Số tiền phải > 0");
+
+  const db = await getDb();
+  const order = await getOrderById(orderId);
+  if (!order) throw new Error("Không tìm thấy đơn");
+  if (order.status === "cancelled") throw new Error("Đơn đã bị hủy");
+  if (order.type === "return") {
+    throw new Error("Không áp dụng cho đơn trả hàng");
+  }
+
+  const remaining = order.total - order.paid;
+  if (remaining <= 0) throw new Error("Đơn đã thanh toán đủ");
+  if (amount > remaining) {
+    throw new Error(`Số tiền (${amount}) lớn hơn còn nợ (${remaining})`);
+  }
+
+  const newPaid = order.paid + amount;
+  const newStatus: OrderStatus = newPaid >= order.total ? "paid" : order.status;
+  const verb = order.type === "sale" ? "Thu nợ" : "Trả nợ";
+
+  // 1. Cập nhật order
+  await db.execute(
+    `UPDATE orders SET paid = ?, status = ? WHERE id = ?`,
+    [newPaid, newStatus, orderId],
+  );
+
+  // 2. Sổ quỹ
+  const cashType: "in" | "out" = order.type === "sale" ? "in" : "out";
+  const category = `${verb} đơn hàng`;
+  const finalNote = note?.trim() || `${verb} ${order.code}`;
+  await db.execute(
+    `INSERT INTO cash_transactions (type, amount, category, ref_table, ref_id, note)
+     VALUES (?, ?, ?, 'orders', ?, ?)`,
+    [cashType, amount, category, orderId, finalNote],
+  );
+
+  // 3. Giảm công nợ contact
+  if (order.type === "sale" && order.customer_id) {
+    await db.execute(
+      `UPDATE customers SET debt_amount = debt_amount - ? WHERE id = ?`,
+      [amount, order.customer_id],
+    );
+  } else if (order.type === "purchase" && order.supplier_id) {
+    await db.execute(
+      `UPDATE suppliers SET debt_amount = debt_amount - ? WHERE id = ?`,
+      [amount, order.supplier_id],
+    );
+  }
+}
+
 /** Danh sách orders với tên đối tác và số dòng */
 export async function listOrders(
   type: OrderType | "all" = "all",
