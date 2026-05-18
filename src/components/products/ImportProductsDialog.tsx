@@ -104,7 +104,7 @@ export function ImportProductsDialog({ open, onOpenChange }: Props) {
           <div className="space-y-4">
             <p className="text-sm text-neutral-600">
               Chọn file Excel (.xlsx) hoặc CSV chứa danh sách sản phẩm. Cần có 2
-              cột bắt buộc: <strong>SKU</strong> và <strong>Tên sản phẩm</strong>.
+              cột bắt buộc: <strong>Mã sản phẩm</strong> và <strong>Tên sản phẩm</strong>.
               Các cột khác tùy chọn.
             </p>
 
@@ -171,7 +171,7 @@ export function ImportProductsDialog({ open, onOpenChange }: Props) {
                 <THead>
                   <TR>
                     <TH className="w-12">#</TH>
-                    <TH>SKU</TH>
+                    <TH>Mã sản phẩm</TH>
                     <TH>Tên</TH>
                     <TH className="text-right">Giá bán</TH>
                     <TH className="text-right">Tồn</TH>

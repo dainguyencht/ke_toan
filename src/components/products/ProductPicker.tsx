@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, formatNumber } from "@/lib/utils";
 import { useProducts } from "@/hooks/useProducts";
 import type { ProductWithStock } from "@/db/products";
 
@@ -34,7 +34,7 @@ export function ProductPicker({ value, onChange, excludeIds = [], className }: P
       <option value="">-- Chọn sản phẩm --</option>
       {filtered.map((p) => (
         <option key={p.id} value={p.id}>
-          {p.sku} · {p.name} (Tồn: {p.total_stock})
+          {p.sku} · {p.name} (Tồn: {formatNumber(p.total_stock)})
         </option>
       ))}
     </select>

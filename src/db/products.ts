@@ -1,5 +1,6 @@
 import { getDb } from "./client";
 import type { Product, ProductVariant } from "@/domain/types";
+import type { UnitInput } from "./units";
 
 export type ProductWithStock = Product & {
   total_stock: number;
@@ -56,10 +57,13 @@ export async function getVariantsOfProduct(productId: number): Promise<ProductVa
 }
 
 /**
- * Tạo sản phẩm + 1 variant mặc định (cùng SKU, attrs rỗng).
- * Nhiều biến thể sẽ được quản lý ở UI riêng sau.
+ * Tạo sản phẩm + 1 variant mặc định + 1 base unit (cùng tên với products.unit).
+ * extraUnits: các đơn vị quy đổi thêm (không phải base).
  */
-export async function createProduct(input: ProductInput): Promise<number> {
+export async function createProduct(
+  input: ProductInput,
+  extraUnits: UnitInput[] = [],
+): Promise<number> {
   const db = await getDb();
   const result = await db.execute(
     `INSERT INTO products
@@ -84,10 +88,38 @@ export async function createProduct(input: ProductInput): Promise<number> {
     [productId, input.sku],
   );
 
+  // Base unit (factor = 1)
+  await db.execute(
+    `INSERT INTO product_units (product_id, name, factor, price_sell, price_cost, is_base, sort_order)
+     VALUES (?, ?, 1, ?, ?, 1, 0)`,
+    [productId, input.unit ?? "cái", input.price_sell, input.price_cost],
+  );
+
+  // Các đơn vị quy đổi
+  for (let i = 0; i < extraUnits.length; i++) {
+    const u = extraUnits[i];
+    await db.execute(
+      `INSERT INTO product_units (product_id, name, factor, price_sell, price_cost, is_base, sort_order)
+       VALUES (?, ?, ?, ?, ?, 0, ?)`,
+      [
+        productId,
+        u.name.trim(),
+        u.factor,
+        u.price_sell ?? null,
+        u.price_cost ?? null,
+        i + 1,
+      ],
+    );
+  }
+
   return productId;
 }
 
-export async function updateProduct(id: number, input: ProductInput): Promise<void> {
+export async function updateProduct(
+  id: number,
+  input: ProductInput,
+  extraUnits: UnitInput[] = [],
+): Promise<void> {
   const db = await getDb();
   await db.execute(
     `UPDATE products SET
@@ -106,6 +138,36 @@ export async function updateProduct(id: number, input: ProductInput): Promise<vo
       id,
     ],
   );
+
+  // Sync base unit (đổi name/price theo product)
+  await db.execute(
+    `UPDATE product_units SET
+       name = ?, price_sell = ?, price_cost = ?
+     WHERE product_id = ? AND is_base = 1`,
+    [input.unit ?? "cái", input.price_sell, input.price_cost, id],
+  );
+
+  // Replace toàn bộ extra units: xóa hết non-base rồi insert lại.
+  // (Đơn giản hóa cho MVP — báo cáo cũ vẫn an toàn vì order_items snapshot unit_name/factor.)
+  await db.execute(
+    `DELETE FROM product_units WHERE product_id = ? AND is_base = 0`,
+    [id],
+  );
+  for (let i = 0; i < extraUnits.length; i++) {
+    const u = extraUnits[i];
+    await db.execute(
+      `INSERT INTO product_units (product_id, name, factor, price_sell, price_cost, is_base, sort_order)
+       VALUES (?, ?, ?, ?, ?, 0, ?)`,
+      [
+        id,
+        u.name.trim(),
+        u.factor,
+        u.price_sell ?? null,
+        u.price_cost ?? null,
+        i + 1,
+      ],
+    );
+  }
 }
 
 export async function archiveProduct(id: number): Promise<void> {

@@ -13,6 +13,33 @@ export function formatVND(value: number): string {
   }).format(value);
 }
 
+/**
+ * Format số thập phân theo locale vi-VN (dùng dấu `,` ngăn cách thập phân,
+ * `.` ngăn cách hàng nghìn). Tối đa 2 chữ số sau dấu phẩy, không hiện 0 thừa.
+ *   formatNumber(2.567) → "2,57"
+ *   formatNumber(1.5)   → "1,5"
+ *   formatNumber(1)     → "1"
+ *   formatNumber(1234.5)→ "1.234,5"
+ */
+export function formatNumber(value: number, maxDecimals = 2): string {
+  return new Intl.NumberFormat("vi-VN", {
+    maximumFractionDigits: maxDecimals,
+  }).format(value);
+}
+
+/**
+ * Format phần trăm với dấu `,`, mặc định 1 chữ số sau dấu phẩy.
+ *   formatPercent(33.333) → "33,3%"
+ */
+export function formatPercent(value: number, decimals = 1): string {
+  return (
+    new Intl.NumberFormat("vi-VN", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(value) + "%"
+  );
+}
+
 export function formatDate(value: string | Date): string {
   const d = typeof value === "string" ? new Date(value) : value;
   return new Intl.DateTimeFormat("vi-VN", {

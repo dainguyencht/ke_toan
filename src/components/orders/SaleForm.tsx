@@ -11,22 +11,26 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
-import { Abbr } from "@/components/ui/abbr";
 import { ContactPicker } from "@/components/contacts/ContactPicker";
 import { ProductPicker } from "@/components/products/ProductPicker";
 import { useCreateSale } from "@/hooks/useOrders";
-import { formatVND } from "@/lib/utils";
+import { cn, formatNumber, formatVND } from "@/lib/utils";
 import { toast } from "sonner";
 import type { ProductWithStock } from "@/db/products";
+import type { ProductUnit } from "@/domain/types";
+import { effectivePriceSell, listUnitsOfProduct } from "@/db/units";
 
 type Line = {
   variant_id: number;
   product_id: number;
   product_name: string;
   sku: string;
+  base_price_sell: number;
+  units: ProductUnit[];
+  unit_id: number;
   qty: number;
   price: number;
-  available: number; // tồn snapshot lúc thêm vào (để cảnh báo oversell)
+  available_base: number; // tồn theo base unit (snapshot lúc thêm)
 };
 
 type Props = {
@@ -54,10 +58,16 @@ export function SaleForm({ open, onOpenChange }: Props) {
     onOpenChange(v);
   };
 
-  const addProduct = (p: ProductWithStock | null) => {
+  const addProduct = async (p: ProductWithStock | null) => {
     if (!p || !p.default_variant_id) return;
     if (lines.some((l) => l.product_id === p.id)) {
       toast.info("Sản phẩm đã có trong phiếu");
+      return;
+    }
+    const units = await listUnitsOfProduct(p.id);
+    const baseUnit = units.find((u) => u.is_base) ?? units[0];
+    if (!baseUnit) {
+      toast.error("Sản phẩm chưa có đơn vị nào");
       return;
     }
     setLines((prev) => [
@@ -67,24 +77,42 @@ export function SaleForm({ open, onOpenChange }: Props) {
         product_id: p.id,
         product_name: p.name,
         sku: p.sku,
+        base_price_sell: p.price_sell,
+        units,
+        unit_id: baseUnit.id,
         qty: 1,
-        price: p.price_sell,
-        available: p.total_stock,
+        price: effectivePriceSell(baseUnit, p.price_sell),
+        available_base: p.total_stock,
       },
     ]);
   };
 
-  const updateLine = (idx: number, patch: Partial<Line>) => {
+  const updateLine = (idx: number, patch: Partial<Line>) =>
     setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+
+  const changeUnit = (idx: number, unitId: number) => {
+    const line = lines[idx];
+    const u = line.units.find((x) => x.id === unitId);
+    if (!u) return;
+    updateLine(idx, {
+      unit_id: unitId,
+      price: effectivePriceSell(u, line.base_price_sell),
+    });
   };
-  const removeLine = (idx: number) => {
+
+  const removeLine = (idx: number) =>
     setLines((prev) => prev.filter((_, i) => i !== idx));
-  };
 
   const subtotal = lines.reduce((s, l) => s + l.qty * l.price, 0);
   const paidNum = Number(paid) || 0;
   const debt = Math.max(0, subtotal - paidNum);
-  const oversold = lines.filter((l) => l.qty > l.available);
+
+  // Tính oversold: convert qty về base unit để so với tồn
+  const oversold = lines.filter((l) => {
+    const u = l.units.find((x) => x.id === l.unit_id);
+    if (!u) return false;
+    return l.qty * u.factor > l.available_base;
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,12 +137,17 @@ export function SaleForm({ open, onOpenChange }: Props) {
         customer_id: customerId,
         note: note.trim() || null,
         paid: paidNum,
-        items: lines.map((l) => ({
-          variant_id: l.variant_id,
-          product_name: l.product_name,
-          qty: l.qty,
-          price: l.price,
-        })),
+        items: lines.map((l) => {
+          const u = l.units.find((x) => x.id === l.unit_id)!;
+          return {
+            variant_id: l.variant_id,
+            product_name: l.product_name,
+            qty: l.qty,
+            price: l.price,
+            unit_name: u.name,
+            unit_factor: u.factor,
+          };
+        }),
       });
       toast.success("Đã tạo phiếu bán");
       handleClose(false);
@@ -125,7 +158,7 @@ export function SaleForm({ open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-4xl">
+      <DialogContent className="max-w-5xl">
         <DialogHeader>
           <DialogTitle>Tạo phiếu bán</DialogTitle>
         </DialogHeader>
@@ -165,18 +198,12 @@ export function SaleForm({ open, onOpenChange }: Props) {
               <Table>
                 <THead>
                   <TR>
-                    <TH>
-                      <Abbr title="Stock Keeping Unit - Mã định danh sản phẩm">
-                        SKU
-                      </Abbr>
-                    </TH>
+                    <TH>Mã sản phẩm</TH>
                     <TH>Tên sản phẩm</TH>
-                    <TH className="w-20 text-right">
-                      <Abbr title="Số lượng còn trong kho">Tồn</Abbr>
-                    </TH>
-                    <TH className="w-24 text-right">
-                      <Abbr title="Số lượng bán">SL bán</Abbr>
-                    </TH>
+                    <TH className="w-20 text-right">Tồn</TH>
+                    <TH className="w-20 text-right">SL</TH>
+                    <TH className="w-14">ĐV</TH>
+                    <TH className="w-56">Quy đổi</TH>
                     <TH className="w-32 text-right">Đơn giá bán</TH>
                     <TH className="w-32 text-right">Thành tiền</TH>
                     <TH className="w-12"></TH>
@@ -184,14 +211,34 @@ export function SaleForm({ open, onOpenChange }: Props) {
                 </THead>
                 <TBody>
                   {lines.map((l, idx) => {
-                    const over = l.qty > l.available;
+                    const currentUnit = l.units.find((u) => u.id === l.unit_id);
+                    const baseUnitName = l.units.find((u) => u.is_base)?.name ?? "";
+                    const qtyBase = l.qty * (currentUnit?.factor ?? 1);
+                    const over = qtyBase > l.available_base;
                     return (
                       <TR key={l.product_id}>
                         <TD className="font-mono text-xs">{l.sku}</TD>
                         <TD>{l.product_name}</TD>
-                        <TD className="text-right text-neutral-500">{l.available}</TD>
+                        <TD className="text-right text-neutral-500 tabular-nums">
+                          {formatNumber(l.available_base)}
+                        </TD>
+                        <TD
+                          className={cn(
+                            "text-right tabular-nums font-medium",
+                            over && "text-amber-700",
+                          )}
+                        >
+                          {formatNumber(qtyBase)}
+                          {over && (
+                            <AlertTriangle
+                              className="inline w-3.5 h-3.5 ml-1 text-amber-500"
+                              aria-label="Vượt tồn"
+                            />
+                          )}
+                        </TD>
+                        <TD className="text-neutral-600">{baseUnitName}</TD>
                         <TD>
-                          <div className="relative">
+                          <div className="flex gap-1">
                             <Input
                               type="number"
                               inputMode="decimal"
@@ -199,17 +246,25 @@ export function SaleForm({ open, onOpenChange }: Props) {
                               onChange={(e) =>
                                 updateLine(idx, { qty: Number(e.target.value) })
                               }
-                              className={`text-right h-8 ${
-                                over ? "border-amber-500 ring-1 ring-amber-300" : ""
-                              }`}
+                              className={cn(
+                                "text-right h-8 flex-1 min-w-0",
+                                over && "border-amber-500 ring-1 ring-amber-300",
+                              )}
                             />
-                            {over && (
-                              <AlertTriangle
-                                className="absolute right-1 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-amber-500"
-                                aria-label="Vượt tồn"
+                            <div className="w-28 shrink-0">
+                              <UnitSelect
+                                units={l.units}
+                                value={l.unit_id}
+                                onChange={(v) => changeUnit(idx, v)}
                               />
-                            )}
+                            </div>
                           </div>
+                          {currentUnit && currentUnit.factor !== 1 && (
+                            <div className="text-xs text-neutral-400 mt-0.5">
+                              1 {currentUnit.name} = {currentUnit.factor}{" "}
+                              {baseUnitName}
+                            </div>
+                          )}
                         </TD>
                         <TD>
                           <Input
@@ -221,8 +276,19 @@ export function SaleForm({ open, onOpenChange }: Props) {
                             }
                             className="text-right h-8"
                           />
+                          {currentUnit && (
+                            <div className="text-xs text-neutral-400 mt-0.5 text-right">
+                              / {currentUnit.name}
+                              {currentUnit.factor !== 1 && (
+                                <span className="ml-1">
+                                  (= {formatVND(l.price / currentUnit.factor)}/
+                                  {baseUnitName})
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </TD>
-                        <TD className="text-right font-medium">
+                        <TD className="text-right font-medium tabular-nums">
                           {formatVND(l.qty * l.price)}
                         </TD>
                         <TD>
@@ -259,10 +325,6 @@ export function SaleForm({ open, onOpenChange }: Props) {
               <div className="flex justify-between">
                 <span className="text-neutral-500">Số dòng:</span>
                 <span>{lines.length}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-neutral-500">Tổng số lượng:</span>
-                <span>{lines.reduce((s, l) => s + l.qty, 0)}</span>
               </div>
             </div>
             <div className="space-y-2 text-sm">
@@ -308,6 +370,34 @@ export function SaleForm({ open, onOpenChange }: Props) {
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function UnitSelect({
+  units,
+  value,
+  onChange,
+}: {
+  units: ProductUnit[];
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      className={cn(
+        "h-8 w-full rounded-md border border-neutral-300 bg-white px-2 text-sm",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500",
+      )}
+    >
+      {units.map((u) => (
+        <option key={u.id} value={u.id}>
+          {u.name}
+          {u.is_base ? " (cơ bản)" : ""}
+        </option>
+      ))}
+    </select>
   );
 }
 

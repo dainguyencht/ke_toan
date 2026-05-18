@@ -7,7 +7,7 @@ import { Abbr } from "@/components/ui/abbr";
 import { ProductForm } from "@/components/products/ProductForm";
 import { ImportProductsDialog } from "@/components/products/ImportProductsDialog";
 import { useArchiveProduct, useProducts } from "@/hooks/useProducts";
-import { formatVND } from "@/lib/utils";
+import { formatNumber, formatVND } from "@/lib/utils";
 import { exportProductsToExcel } from "@/lib/excelExport";
 import type { Product } from "@/domain/types";
 import { toast } from "sonner";
@@ -85,7 +85,7 @@ export default function Products() {
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Tìm theo tên, SKU, mã vạch..."
+          placeholder="Tìm theo tên, mã sản phẩm, mã vạch..."
           className="pl-9"
         />
       </div>
@@ -106,11 +106,7 @@ export default function Products() {
           <Table>
             <THead>
               <TR>
-                <TH>
-                  <Abbr title="Stock Keeping Unit - Mã định danh duy nhất của sản phẩm">
-                    SKU
-                  </Abbr>
-                </TH>
+                <TH>Mã sản phẩm</TH>
                 <TH>Tên sản phẩm</TH>
                 <TH>Mã vạch</TH>
                 <TH className="text-right">
@@ -141,7 +137,7 @@ export default function Products() {
                           : "text-neutral-700"
                       }
                     >
-                      {p.total_stock} {p.unit}
+                      {formatNumber(p.total_stock)} {p.unit}
                     </span>
                   </TD>
                   <TD>

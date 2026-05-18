@@ -16,8 +16,10 @@ export type PurchaseInput = {
 export type PurchaseLine = {
   variant_id: number;
   product_name: string; // chỉ để hiển thị
-  qty: number;
-  price: number; // giá nhập
+  qty: number;          // theo unit_name
+  price: number;        // giá nhập theo unit_name
+  unit_name: string;    // snapshot
+  unit_factor: number;  // 1 unit_name = factor × base_unit
 };
 
 export type SaleInput = {
@@ -30,8 +32,10 @@ export type SaleInput = {
 export type SaleLine = {
   variant_id: number;
   product_name: string;
-  qty: number;
-  price: number; // giá bán
+  qty: number;          // theo unit_name
+  price: number;        // giá bán theo unit_name
+  unit_name: string;
+  unit_factor: number;
 };
 
 /**
@@ -82,28 +86,45 @@ export async function createPurchase(input: PurchaseInput): Promise<number> {
   );
   const orderId = Number(orderResult.lastInsertId);
 
-  // 2. Items + stock movements + cập nhật stock cache
+  // 2. Items + stock movements + cập nhật stock cache (quy đổi về base unit)
   for (const line of input.items) {
     const lineTotal = line.qty * line.price;
+    const qtyBase = line.qty * line.unit_factor;
     await db.execute(
-      `INSERT INTO order_items (order_id, variant_id, qty, price, cost, discount, total)
-       VALUES (?, ?, ?, ?, ?, 0, ?)`,
-      [orderId, line.variant_id, line.qty, line.price, line.price, lineTotal],
+      `INSERT INTO order_items
+        (order_id, variant_id, qty, price, cost, discount, total, unit_name, unit_factor)
+       VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+      [
+        orderId,
+        line.variant_id,
+        line.qty,
+        line.price,
+        line.price,
+        lineTotal,
+        line.unit_name,
+        line.unit_factor,
+      ],
     );
     await db.execute(
       `INSERT INTO stock_movements (variant_id, qty_change, type, ref_table, ref_id, note)
        VALUES (?, ?, 'purchase', 'orders', ?, ?)`,
-      [line.variant_id, line.qty, orderId, `Nhập từ phiếu ${code}`],
+      [
+        line.variant_id,
+        qtyBase,
+        orderId,
+        `Nhập từ phiếu ${code} (${line.qty} ${line.unit_name})`,
+      ],
     );
     await db.execute(
       `UPDATE product_variants SET stock_qty = stock_qty + ? WHERE id = ?`,
-      [line.qty, line.variant_id],
+      [qtyBase, line.variant_id],
     );
-    // Cập nhật giá vốn mới nhất cho product (để tính lãi đơn bán sau này)
+    // Cập nhật giá vốn cho product theo giá nhập của 1 base unit
+    const costPerBase = line.unit_factor > 0 ? line.price / line.unit_factor : line.price;
     await db.execute(
       `UPDATE products SET price_cost = ?, updated_at = datetime('now')
        WHERE id = (SELECT product_id FROM product_variants WHERE id = ?)`,
-      [line.price, line.variant_id],
+      [costPerBase, line.variant_id],
     );
   }
 
@@ -166,23 +187,41 @@ export async function createSale(input: SaleInput): Promise<number> {
   );
   const orderId = Number(orderResult.lastInsertId);
 
-  // 2. Items + stock movements (-) + cập nhật stock cache
+  // 2. Items + stock movements (-) + cập nhật stock cache (quy đổi về base unit)
   for (const line of input.items) {
     const lineTotal = line.qty * line.price;
-    const cost = costMap.get(line.variant_id) ?? 0;
+    const qtyBase = line.qty * line.unit_factor;
+    // Giá vốn ở đây snapshot theo base, nhân với factor để khớp với qty bán
+    const baseCost = costMap.get(line.variant_id) ?? 0;
+    const cost = baseCost * line.unit_factor; // giá vốn cho 1 đơn vị bán
     await db.execute(
-      `INSERT INTO order_items (order_id, variant_id, qty, price, cost, discount, total)
-       VALUES (?, ?, ?, ?, ?, 0, ?)`,
-      [orderId, line.variant_id, line.qty, line.price, cost, lineTotal],
+      `INSERT INTO order_items
+        (order_id, variant_id, qty, price, cost, discount, total, unit_name, unit_factor)
+       VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+      [
+        orderId,
+        line.variant_id,
+        line.qty,
+        line.price,
+        cost,
+        lineTotal,
+        line.unit_name,
+        line.unit_factor,
+      ],
     );
     await db.execute(
       `INSERT INTO stock_movements (variant_id, qty_change, type, ref_table, ref_id, note)
        VALUES (?, ?, 'sale', 'orders', ?, ?)`,
-      [line.variant_id, -line.qty, orderId, `Bán theo phiếu ${code}`],
+      [
+        line.variant_id,
+        -qtyBase,
+        orderId,
+        `Bán theo phiếu ${code} (${line.qty} ${line.unit_name})`,
+      ],
     );
     await db.execute(
       `UPDATE product_variants SET stock_qty = stock_qty - ? WHERE id = ?`,
-      [line.qty, line.variant_id],
+      [qtyBase, line.variant_id],
     );
   }
 
@@ -323,9 +362,10 @@ export async function cancelOrder(id: number): Promise<void> {
     [id],
   );
 
-  // 1. Đảo tồn kho
+  // 1. Đảo tồn kho (đổi qty về base unit qua unit_factor)
   for (const it of items) {
-    const reverseQty = order.type === "sale" ? it.qty : -it.qty;
+    const qtyBase = it.qty * (it.unit_factor || 1);
+    const reverseQty = order.type === "sale" ? qtyBase : -qtyBase;
     await db.execute(
       `INSERT INTO stock_movements (variant_id, qty_change, type, ref_table, ref_id, note)
        VALUES (?, ?, 'adjust', 'orders', ?, ?)`,
@@ -372,14 +412,15 @@ export async function cancelOrder(id: number): Promise<void> {
 }
 
 export async function getOrderItems(orderId: number): Promise<
-  Array<OrderItem & { sku: string; product_name: string }>
+  Array<OrderItem & { sku: string; product_name: string; base_unit: string }>
 > {
   const db = await getDb();
   return await db.select(
     `SELECT
        i.*,
        v.sku    AS sku,
-       p.name   AS product_name
+       p.name   AS product_name,
+       p.unit   AS base_unit
      FROM order_items i
      JOIN product_variants v ON v.id = i.variant_id
      JOIN products p         ON p.id = v.product_id

@@ -93,7 +93,8 @@ export type TopProduct = {
   product_id: number;
   product_name: string;
   sku: string;
-  total_qty: number;
+  base_unit: string;
+  total_qty: number; // theo đơn vị cơ bản
   total_revenue: number;
 };
 
@@ -108,7 +109,8 @@ export async function getTopSellingProducts(
        v.product_id,
        p.name AS product_name,
        v.sku  AS sku,
-       SUM(i.qty)   AS total_qty,
+       p.unit AS base_unit,
+       SUM(i.qty * COALESCE(i.unit_factor, 1)) AS total_qty,
        SUM(i.total) AS total_revenue
      FROM order_items i
      JOIN orders o           ON o.id = i.order_id
@@ -221,7 +223,8 @@ export type ProfitReport = {
   product_id: number;
   sku: string;
   name: string;
-  qty_sold: number;
+  base_unit: string;
+  qty_sold: number; // theo đơn vị cơ bản
   revenue: number;
   cost_total: number;
   profit: number;
@@ -237,10 +240,11 @@ export async function getProfitByProduct(
        p.id           AS product_id,
        v.sku          AS sku,
        p.name         AS name,
-       SUM(i.qty)             AS qty_sold,
-       SUM(i.total)           AS revenue,
-       SUM(i.qty * i.cost)    AS cost_total,
-       SUM(i.total) - SUM(i.qty * i.cost) AS profit
+       p.unit         AS base_unit,
+       SUM(i.qty * COALESCE(i.unit_factor, 1)) AS qty_sold,
+       SUM(i.total)                              AS revenue,
+       SUM(i.qty * i.cost)                       AS cost_total,
+       SUM(i.total) - SUM(i.qty * i.cost)        AS profit
      FROM order_items i
      JOIN orders o           ON o.id = i.order_id
      JOIN product_variants v ON v.id = i.variant_id

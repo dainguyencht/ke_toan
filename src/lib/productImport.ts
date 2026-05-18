@@ -22,7 +22,7 @@ export type ImportResult = {
 };
 
 const HEADERS = [
-  "SKU",
+  "Mã sản phẩm",
   "Tên sản phẩm",
   "Mã vạch",
   "Đơn vị",
@@ -31,6 +31,14 @@ const HEADERS = [
   "Tồn đầu kỳ",
   "Ghi chú",
 ];
+
+/** Đọc giá trị theo nhiều tên cột (backward-compat cho template cũ dùng "SKU") */
+function pickCol(row: Record<string, unknown>, ...names: string[]): unknown {
+  for (const n of names) {
+    if (row[n] != null && row[n] !== "") return row[n];
+  }
+  return "";
+}
 
 /** Parse Excel/CSV → mảng ImportRow, kèm errors per-row */
 export async function parseProductFile(file: File): Promise<ImportRow[]> {
@@ -46,9 +54,14 @@ export async function parseProductFile(file: File): Promise<ImportRow[]> {
 
   if (raw.length === 0) return [];
 
-  // Validate headers (case-sensitive nhưng linh hoạt với khoảng trắng)
+  // Validate headers (case-sensitive nhưng linh hoạt với khoảng trắng).
+  // Chấp nhận cả "Mã sản phẩm" (mới) và "SKU" (template cũ).
   const firstRowKeys = Object.keys(raw[0]).map((k) => k.trim());
-  const missing = ["SKU", "Tên sản phẩm"].filter((h) => !firstRowKeys.includes(h));
+  const missing: string[] = [];
+  if (!firstRowKeys.includes("Mã sản phẩm") && !firstRowKeys.includes("SKU")) {
+    missing.push("Mã sản phẩm");
+  }
+  if (!firstRowKeys.includes("Tên sản phẩm")) missing.push("Tên sản phẩm");
   if (missing.length > 0) {
     throw new Error(
       `File thiếu cột bắt buộc: ${missing.join(", ")}. Hãy dùng đúng template.`,
@@ -59,7 +72,7 @@ export async function parseProductFile(file: File): Promise<ImportRow[]> {
 }
 
 function parseRow(row: Record<string, unknown>, rowNum: number): ImportRow {
-  const sku = String(row["SKU"] ?? "").trim();
+  const sku = String(pickCol(row, "Mã sản phẩm", "SKU") ?? "").trim();
   const name = String(row["Tên sản phẩm"] ?? "").trim();
   const barcode = String(row["Mã vạch"] ?? "").trim() || null;
   const unit = String(row["Đơn vị"] ?? "").trim() || "cái";
@@ -69,7 +82,7 @@ function parseRow(row: Record<string, unknown>, rowNum: number): ImportRow {
   const initial_stock = parseNumber(row["Tồn đầu kỳ"]);
 
   const errors: string[] = [];
-  if (!sku) errors.push("Thiếu SKU");
+  if (!sku) errors.push("Thiếu mã sản phẩm");
   if (!name) errors.push("Thiếu tên sản phẩm");
   if (price_cost < 0) errors.push("Giá vốn âm");
   if (price_sell < 0) errors.push("Giá bán âm");
@@ -117,12 +130,12 @@ export async function validateAgainstDb(rows: ImportRow[]): Promise<ImportRow[]>
   return rows.map((r) => {
     const extra: string[] = [];
     if (r.sku && existingSet.has(r.sku)) {
-      extra.push("SKU đã tồn tại trong dữ liệu");
+      extra.push("Mã sản phẩm đã tồn tại trong dữ liệu");
     }
     const dupRows = fileSkuCount.get(r.sku);
     if (dupRows && dupRows.length > 1) {
       const others = dupRows.filter((n) => n !== r.rowNum);
-      extra.push(`SKU trùng với dòng ${others.join(", ")} trong file`);
+      extra.push(`Mã sản phẩm trùng với dòng ${others.join(", ")} trong file`);
     }
     return { ...r, errors: [...r.errors, ...extra] };
   });

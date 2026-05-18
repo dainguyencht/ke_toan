@@ -12,7 +12,7 @@ import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Abbr } from "@/components/ui/abbr";
 import { useCancelOrder, useOrder, useOrderItems } from "@/hooks/useOrders";
 import { PayOrderDebtDialog } from "./PayOrderDebtDialog";
-import { cn, formatDateTime, formatVND } from "@/lib/utils";
+import { cn, formatDateTime, formatNumber, formatVND } from "@/lib/utils";
 import type { OrderStatus, OrderType } from "@/domain/types";
 import { toast } from "sonner";
 
@@ -119,14 +119,18 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
               <Table>
                 <THead>
                   <TR>
-                    <TH>
-                      <Abbr title="Stock Keeping Unit - Mã định danh sản phẩm">
-                        SKU
-                      </Abbr>
-                    </TH>
+                    <TH>Mã sản phẩm</TH>
                     <TH>Sản phẩm</TH>
                     <TH className="text-right">
-                      <Abbr title="Số lượng">SL</Abbr>
+                      <Abbr title="Số lượng theo đơn vị cơ bản">SL</Abbr>
+                    </TH>
+                    <TH>
+                      <Abbr title="Đơn vị cơ bản của sản phẩm">ĐV</Abbr>
+                    </TH>
+                    <TH>
+                      <Abbr title="Số lượng + đơn vị thực tế khi đặt">
+                        Quy đổi
+                      </Abbr>
                     </TH>
                     <TH className="text-right">Đơn giá</TH>
                     {order.type === "sale" && (
@@ -140,22 +144,61 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
                   </TR>
                 </THead>
                 <TBody>
-                  {items.map((it) => (
-                    <TR key={it.id}>
-                      <TD className="font-mono text-xs">{it.sku}</TD>
-                      <TD>{it.product_name}</TD>
-                      <TD className="text-right tabular-nums">{it.qty}</TD>
-                      <TD className="text-right tabular-nums">{formatVND(it.price)}</TD>
-                      {order.type === "sale" && (
-                        <TD className="text-right tabular-nums text-neutral-500">
-                          {formatVND(it.cost)}
+                  {items.map((it) => {
+                    const factor = it.unit_factor || 1;
+                    const qtyBase = it.qty * factor;
+                    const isConverted = it.unit_name !== it.base_unit;
+                    const pricePerBase = factor > 0 ? it.price / factor : it.price;
+                    const costPerBase = factor > 0 ? it.cost / factor : it.cost;
+                    return (
+                      <TR key={it.id}>
+                        <TD className="font-mono text-xs">{it.sku}</TD>
+                        <TD>{it.product_name}</TD>
+                        <TD className="text-right tabular-nums">
+                          {formatNumber(qtyBase)}
                         </TD>
-                      )}
-                      <TD className="text-right tabular-nums font-medium">
-                        {formatVND(it.total)}
-                      </TD>
-                    </TR>
-                  ))}
+                        <TD className="text-neutral-600">{it.base_unit}</TD>
+                        <TD className="text-neutral-600 text-sm">
+                          {isConverted ? (
+                            <span>
+                              {formatNumber(it.qty)} {it.unit_name}
+                            </span>
+                          ) : (
+                            <span className="text-neutral-400">—</span>
+                          )}
+                        </TD>
+                        <TD className="text-right tabular-nums">
+                          <div>
+                            {formatVND(it.price)}
+                            <span className="text-neutral-500 ml-1">
+                              /{it.unit_name}
+                            </span>
+                          </div>
+                          {isConverted && (
+                            <div className="text-xs text-neutral-400">
+                              = {formatVND(pricePerBase)}/{it.base_unit}
+                            </div>
+                          )}
+                        </TD>
+                        {order.type === "sale" && (
+                          <TD className="text-right tabular-nums text-neutral-500">
+                            <div>
+                              {formatVND(it.cost)}
+                              <span className="ml-1">/{it.unit_name}</span>
+                            </div>
+                            {isConverted && (
+                              <div className="text-xs text-neutral-400">
+                                = {formatVND(costPerBase)}/{it.base_unit}
+                              </div>
+                            )}
+                          </TD>
+                        )}
+                        <TD className="text-right tabular-nums font-medium">
+                          {formatVND(it.total)}
+                        </TD>
+                      </TR>
+                    );
+                  })}
                 </TBody>
               </Table>
             </div>

@@ -16,7 +16,7 @@ import {
   useLowStockItems,
   useTopProducts,
 } from "@/hooks/useReports";
-import { cn, formatVND } from "@/lib/utils";
+import { cn, formatNumber, formatVND } from "@/lib/utils";
 
 export default function Dashboard() {
   const { data: stats } = useDashboardStats();
@@ -144,7 +144,10 @@ export default function Dashboard() {
                       <div className="font-medium">{p.product_name}</div>
                       <div className="text-xs text-neutral-500 font-mono">{p.sku}</div>
                     </TD>
-                    <TD className="text-right tabular-nums">{p.total_qty}</TD>
+                    <TD className="text-right tabular-nums">
+                      {formatNumber(p.total_qty)}{" "}
+                      <span className="text-neutral-500 text-xs">{p.base_unit}</span>
+                    </TD>
                     <TD className="text-right tabular-nums font-medium">
                       {formatVND(p.total_revenue)}
                     </TD>
@@ -182,7 +185,7 @@ export default function Dashboard() {
                         p.stock_qty <= 0 ? "text-red-600" : "text-amber-600",
                       )}
                     >
-                      {p.stock_qty} {p.unit}
+                      {formatNumber(p.stock_qty)} {p.unit}
                     </TD>
                   </TR>
                 ))}

@@ -14,15 +14,18 @@ import {
   cn,
   daysAgo,
   formatDate,
+  formatNumber,
+  formatPercent,
   formatVND,
   startOfMonth,
   startOfQuarter,
   startOfYear,
 } from "@/lib/utils";
 
-type Range = "7d" | "30d" | "month" | "quarter" | "year";
+type Range = "today" | "7d" | "30d" | "month" | "quarter" | "year";
 
 const RANGE_LABEL: Record<Range, string> = {
+  today: "Hôm nay",
   "7d": "7 ngày",
   "30d": "30 ngày",
   month: "Tháng này",
@@ -35,6 +38,9 @@ function rangeToDates(r: Range): { from: string; to: string } {
   const to = daysAgo(0);
   let from: string;
   switch (r) {
+    case "today":
+      from = daysAgo(0);
+      break;
     case "7d":
       from = daysAgo(6);
       break;
@@ -187,7 +193,7 @@ function ProfitReport() {
           },
           {
             label: "Biên lãi",
-            value: `${allMargin.toFixed(1)}%`,
+            value: formatPercent(allMargin),
             tone: allMargin >= 0 ? "green" : "red",
           },
         ]}
@@ -209,7 +215,7 @@ function ProfitReport() {
         />
         <Summary
           label="Biên lãi trong kỳ"
-          value={`${margin.toFixed(1)}%`}
+          value={formatPercent(margin)}
           tone={margin >= 0 ? "green" : "red"}
           tooltip="= Lãi gộp / Doanh thu × 100%"
         />
@@ -221,14 +227,13 @@ function ProfitReport() {
           <Table>
             <THead>
               <TR>
-                <TH>
-                  <Abbr title="Stock Keeping Unit - Mã định danh sản phẩm">
-                    SKU
-                  </Abbr>
-                </TH>
+                <TH>Mã sản phẩm</TH>
                 <TH>Sản phẩm</TH>
                 <TH className="text-right">
-                  <Abbr title="Số lượng bán">SL bán</Abbr>
+                  <Abbr title="Số lượng bán (theo đơn vị cơ bản)">SL bán</Abbr>
+                </TH>
+                <TH>
+                  <Abbr title="Đơn vị cơ bản">ĐV</Abbr>
                 </TH>
                 <TH className="text-right">Doanh thu</TH>
                 <TH className="text-right">
@@ -249,7 +254,10 @@ function ProfitReport() {
                   <TR key={r.product_id}>
                     <TD className="font-mono text-xs">{r.sku}</TD>
                     <TD className="font-medium">{r.name}</TD>
-                    <TD className="text-right tabular-nums">{r.qty_sold}</TD>
+                    <TD className="text-right tabular-nums">
+                      {formatNumber(r.qty_sold)}
+                    </TD>
+                    <TD className="text-neutral-600">{r.base_unit}</TD>
                     <TD className="text-right tabular-nums">{formatVND(r.revenue)}</TD>
                     <TD className="text-right tabular-nums text-neutral-500">
                       {formatVND(r.cost_total)}
@@ -268,7 +276,7 @@ function ProfitReport() {
                         m >= 0 ? "text-green-700" : "text-red-700",
                       )}
                     >
-                      {m.toFixed(1)}%
+                      {formatPercent(m)}
                     </TD>
                   </TR>
                 );
@@ -291,7 +299,7 @@ function StockReport() {
     <div className="space-y-3">
       <div className="grid grid-cols-3 gap-3">
         <Summary label="Số SP" value={String(data.length)} />
-        <Summary label="Tổng tồn" value={totalQty.toFixed(0)} />
+        <Summary label="Tổng tồn" value={formatNumber(totalQty)} />
         <Summary label="Giá trị tồn" value={formatVND(totalValue)} />
       </div>
       <div className="border border-neutral-200 rounded-md bg-white">
@@ -301,11 +309,7 @@ function StockReport() {
           <Table>
             <THead>
               <TR>
-                <TH>
-                  <Abbr title="Stock Keeping Unit - Mã định danh sản phẩm">
-                    SKU
-                  </Abbr>
-                </TH>
+                <TH>Mã sản phẩm</TH>
                 <TH>Sản phẩm</TH>
                 <TH className="text-right">
                   <Abbr title="Số lượng còn trong kho">Tồn</Abbr>
@@ -327,7 +331,7 @@ function StockReport() {
                       r.stock_qty <= 0 && "text-red-600 font-medium",
                     )}
                   >
-                    {r.stock_qty} {r.unit}
+                    {formatNumber(r.stock_qty)} {r.unit}
                   </TD>
                   <TD className="text-right tabular-nums text-neutral-500">
                     {formatVND(r.price_cost)}

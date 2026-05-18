@@ -63,7 +63,7 @@ export async function exportProductsToExcel(
   products: ProductWithStock[],
 ): Promise<ExportResult> {
   const header = [
-    "SKU",
+    "Mã sản phẩm",
     "Tên sản phẩm",
     "Mã vạch",
     "Đơn vị",
@@ -85,7 +85,7 @@ export async function exportProductsToExcel(
     { wch: 24 },
   ];
   const rows = products.map((p) => ({
-    SKU: p.sku,
+    "Mã sản phẩm": p.sku,
     "Tên sản phẩm": p.name,
     "Mã vạch": p.barcode ?? "",
     "Đơn vị": p.unit,

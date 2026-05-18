@@ -8,6 +8,7 @@ import {
   updateProduct,
   type ProductInput,
 } from "@/db/products";
+import type { UnitInput } from "@/db/units";
 
 const KEY = ["products"] as const;
 
@@ -29,23 +30,38 @@ export function useProduct(id: number | null) {
 export function useCreateProduct() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: ProductInput & { initial_stock?: number }) => {
-      const id = await createProduct(input);
+    mutationFn: async (
+      input: ProductInput & { initial_stock?: number; extra_units?: UnitInput[] },
+    ) => {
+      const id = await createProduct(input, input.extra_units ?? []);
       if (input.initial_stock && input.initial_stock > 0) {
         await setInitialStock(id, input.initial_stock);
       }
       return id;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY });
+      qc.invalidateQueries({ queryKey: ["units"] });
+    },
   });
 }
 
 export function useUpdateProduct() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, input }: { id: number; input: ProductInput }) =>
-      updateProduct(id, input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    mutationFn: ({
+      id,
+      input,
+      extra_units,
+    }: {
+      id: number;
+      input: ProductInput;
+      extra_units?: UnitInput[];
+    }) => updateProduct(id, input, extra_units ?? []),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY });
+      qc.invalidateQueries({ queryKey: ["units"] });
+    },
   });
 }
 

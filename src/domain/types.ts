@@ -32,6 +32,18 @@ export type ProductVariant = {
   created_at: string;
 };
 
+export type ProductUnit = {
+  id: number;
+  product_id: number;
+  name: string;
+  factor: number;          // 1 unit_này = factor * base_unit
+  price_sell: number | null; // null = product.price_sell * factor
+  price_cost: number | null; // null = product.price_cost * factor
+  is_base: number;          // 1 = đơn vị cơ bản
+  sort_order: number;
+  created_at: string;
+};
+
 export type Customer = {
   id: number;
   name: string;
@@ -74,11 +86,13 @@ export type OrderItem = {
   id: number;
   order_id: number;
   variant_id: number;
-  qty: number;
-  price: number;
-  cost: number;
+  qty: number;          // theo đơn vị bán (unit_name)
+  price: number;        // giá đơn vị bán
+  cost: number;         // giá vốn đơn vị bán (snapshot)
   discount: number;
   total: number;
+  unit_name: string;    // 'm²' / 'hộp' / 'thùng'... snapshot
+  unit_factor: number;  // 1 unit_name = factor * base_unit
 };
 
 export type StockMovementType = "purchase" | "sale" | "return" | "adjust" | "init";
