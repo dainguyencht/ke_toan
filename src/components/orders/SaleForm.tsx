@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,8 @@ import {
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { ContactPicker } from "@/components/contacts/ContactPicker";
 import { ProductPicker } from "@/components/products/ProductPicker";
-import { useCreateSale } from "@/hooks/useOrders";
+import { useCancelOrder, useCreateSale } from "@/hooks/useOrders";
+import { loadOrderForEdit } from "@/db/orders";
 import { cn, formatNumber, formatVND } from "@/lib/utils";
 import { toast } from "sonner";
 import type { ProductWithStock } from "@/db/products";
@@ -36,27 +37,71 @@ type Line = {
 type Props = {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  /** Khi truyền: load đơn cũ, edit, submit sẽ hủy + tạo mới. */
+  editOrderId?: number;
+  /** Gọi khi tạo/cập nhật thành công. */
+  onSuccess?: () => void;
 };
 
-export function SaleForm({ open, onOpenChange }: Props) {
+export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) {
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [paid, setPaid] = useState("0");
   const [note, setNote] = useState("");
+  const [editingCode, setEditingCode] = useState<string | null>(null);
+  const [loadingEdit, setLoadingEdit] = useState(false);
 
   const create = useCreateSale();
+  const cancel = useCancelOrder();
+  const isEdit = editOrderId != null;
 
   const reset = () => {
     setCustomerId(null);
     setLines([]);
     setPaid("0");
     setNote("");
+    setEditingCode(null);
   };
 
   const handleClose = (v: boolean) => {
     if (!v) reset();
     onOpenChange(v);
   };
+
+  useEffect(() => {
+    if (!open || !editOrderId) return;
+    setLoadingEdit(true);
+    loadOrderForEdit(editOrderId)
+      .then(({ order, lines: editLines }) => {
+        setEditingCode(order.code);
+        setCustomerId(order.customer_id);
+        setPaid(String(order.paid));
+        setNote(order.note ?? "");
+        setLines(
+          editLines.map((l) => ({
+            variant_id: l.variant_id,
+            product_id: l.product_id,
+            product_name: l.product_name,
+            sku: l.sku,
+            base_price_sell: l.base_price_sell,
+            units: l.units,
+            unit_id: l.unit_id,
+            qty: l.qty,
+            price: l.price,
+            // Tồn hiện tại đã trừ đi qty của chính phiếu này → cộng lại
+            // để user thấy tồn "khả dụng" đúng nếu cập nhật phiếu này:
+            available_base:
+              l.stock_base + l.qty * (l.units.find((u) => u.id === l.unit_id)?.factor ?? 1),
+          })),
+        );
+      })
+      .catch((err) => {
+        toast.error(`Lỗi load đơn: ${(err as Error).message}`);
+        handleClose(false);
+      })
+      .finally(() => setLoadingEdit(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editOrderId]);
 
   const addProduct = async (p: ProductWithStock | null) => {
     if (!p || !p.default_variant_id) return;
@@ -132,25 +177,55 @@ export function SaleForm({ open, onOpenChange }: Props) {
       toast.error("Có công nợ nhưng chưa chọn khách. Hoặc chọn KH, hoặc thu đủ.");
       return;
     }
+
+    const itemsPayload = lines.map((l) => {
+      const u = l.units.find((x) => x.id === l.unit_id)!;
+      return {
+        variant_id: l.variant_id,
+        product_name: l.product_name,
+        qty: l.qty,
+        price: l.price,
+        unit_name: u.name,
+        unit_factor: u.factor,
+      };
+    });
+
+    if (isEdit && editOrderId && editingCode) {
+      const ok = confirm(
+        `Cập nhật phiếu ${editingCode}\n\n` +
+          `• Phiếu cũ ${editingCode} sẽ bị HỦY (tồn/sổ quỹ/công nợ đảo ngược)\n` +
+          `• Một PHIẾU MỚI sẽ được tạo với dữ liệu vừa sửa\n` +
+          `• Phiếu mới có MÃ MỚI khác phiếu cũ\n\n` +
+          `Tiếp tục?`,
+      );
+      if (!ok) return;
+      try {
+        await cancel.mutateAsync(editOrderId);
+        await create.mutateAsync({
+          customer_id: customerId,
+          note: note.trim() || null,
+          paid: paidNum,
+          items: itemsPayload,
+        });
+        toast.success(`Đã cập nhật. Phiếu cũ ${editingCode} đã hủy, phiếu mới đã tạo.`);
+        handleClose(false);
+        onSuccess?.();
+      } catch (err) {
+        toast.error(`Lỗi cập nhật: ${(err as Error).message}`);
+      }
+      return;
+    }
+
     try {
       await create.mutateAsync({
         customer_id: customerId,
         note: note.trim() || null,
         paid: paidNum,
-        items: lines.map((l) => {
-          const u = l.units.find((x) => x.id === l.unit_id)!;
-          return {
-            variant_id: l.variant_id,
-            product_name: l.product_name,
-            qty: l.qty,
-            price: l.price,
-            unit_name: u.name,
-            unit_factor: u.factor,
-          };
-        }),
+        items: itemsPayload,
       });
       toast.success("Đã tạo phiếu bán");
       handleClose(false);
+      onSuccess?.();
     } catch (err) {
       toast.error(`Lỗi: ${(err as Error).message}`);
     }
@@ -160,8 +235,13 @@ export function SaleForm({ open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-5xl">
         <DialogHeader>
-          <DialogTitle>Tạo phiếu bán</DialogTitle>
+          <DialogTitle>
+            {isEdit ? `Cập nhật phiếu bán ${editingCode ?? "..."}` : "Tạo phiếu bán"}
+          </DialogTitle>
         </DialogHeader>
+        {loadingEdit && (
+          <div className="text-sm text-neutral-500">Đang tải dữ liệu phiếu...</div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
@@ -363,8 +443,15 @@ export function SaleForm({ open, onOpenChange }: Props) {
             >
               Thu đủ
             </Button>
-            <Button type="submit" disabled={create.isPending || lines.length === 0}>
-              {create.isPending ? "Đang lưu..." : "Tạo phiếu bán"}
+            <Button
+              type="submit"
+              disabled={create.isPending || cancel.isPending || lines.length === 0}
+            >
+              {create.isPending || cancel.isPending
+                ? "Đang lưu..."
+                : isEdit
+                  ? "Cập nhật (hủy cũ + tạo mới)"
+                  : "Tạo phiếu bán"}
             </Button>
           </DialogFooter>
         </form>

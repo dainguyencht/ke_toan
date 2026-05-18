@@ -25,3 +25,7 @@ dist-ssr
 
 # Local notes/docs (không commit)
 docs/
+
+# Local reference files (not for repo)
+template.pdf
+template.xlsx

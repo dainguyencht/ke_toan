@@ -32,3 +32,173 @@ body {
   user-select: text;
   -webkit-user-select: text;
 }
+
+.inv-wrap {
+  font-family: "Tahoma", "Calibri", "Segoe UI", Arial, sans-serif;
+  font-size: 13px;
+  color: black;
+  background: white;
+}
+
+/* Header: chia 2 nửa — trái = tên shop, phải = info */
+.inv-header {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.inv-shop-col {
+  padding-top: 4px;
+}
+.inv-shop {
+  font-size: 18px;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+.inv-shop-meta table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.inv-shop-meta td {
+  padding: 2px 0;
+  font-size: 12px;
+  vertical-align: top;
+}
+.inv-meta-label {
+  font-weight: bold;
+  white-space: nowrap;
+  padding-right: 8px;
+  width: 1%; /* shrink to content; value cell flexes */
+}
+.inv-meta-val {
+  min-height: 16px;
+}
+
+/* Tiêu đề */
+.inv-title-block {
+  text-align: center;
+  margin: 8px 0 12px;
+}
+.inv-title {
+  font-size: 18px;
+  font-weight: bold;
+}
+.inv-date {
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+/* Customer info: 4 dòng với dotted underline */
+.inv-customer-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 8px;
+}
+.inv-customer-table td {
+  padding: 3px 4px;
+  font-size: 13px;
+  vertical-align: top;
+}
+.inv-cust-label {
+  width: 80px;
+  font-weight: bold;
+  white-space: nowrap;
+}
+.inv-cust-val {
+  min-height: 18px;
+}
+
+/* Items table */
+.inv-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 4px;
+  table-layout: fixed;
+}
+.inv-table th,
+.inv-table td {
+  border: 1px solid #555;
+  padding: 5px 6px;
+  font-size: 12px;
+  vertical-align: middle;
+  word-wrap: break-word;
+}
+.inv-table th {
+  font-weight: bold;
+  text-align: center;
+  background: #fafafa;
+  white-space: nowrap;
+}
+.inv-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.inv-table td.center {
+  text-align: center;
+}
+.inv-total-row td {
+  font-weight: bold;
+  text-align: right;
+}
+.inv-total-row td:last-child {
+  font-weight: bold;
+}
+
+/* Cột widths — đủ rộng để header không xuống dòng (trừ "(VNĐ)" có <br>) */
+.inv-table col.col-stt { width: 5%; }
+.inv-table col.col-sku { width: 13%; }
+.inv-table col.col-name { width: 23%; }
+.inv-table col.col-unit { width: 11%; }
+.inv-table col.col-qty { width: 9%; }
+.inv-table col.col-conv { width: 10%; }
+.inv-table col.col-price { width: 13%; }
+.inv-table col.col-total { width: 16%; }
+
+/* Summary nợ */
+.inv-bottom-summary {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.inv-bottom-summary .sum-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.inv-bottom-summary .sum-label {
+  font-weight: bold;
+  white-space: nowrap;
+}
+.inv-bottom-summary .sum-val {
+  flex: 1;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.inv-bottom-summary .sum-note {
+  font-weight: bold;
+}
+
+/* Signatures */
+.inv-signatures {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  text-align: center;
+  margin-top: 30px;
+}
+.inv-sig-title {
+  font-weight: bold;
+  font-size: 13px;
+}
+.inv-sig-sub {
+  font-style: italic;
+  font-size: 12px;
+  margin-top: 2px;
+  margin-bottom: 60px;
+}
+
+@media print {
+  @page { size: A4; margin: 0; }
+  body { background: white !important; color: black !important; margin: 0; padding: 0; }
+}

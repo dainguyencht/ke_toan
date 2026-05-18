@@ -1,5 +1,12 @@
 import { getDb } from "./client";
-import type { Order, OrderItem, OrderStatus, OrderType } from "@/domain/types";
+import type {
+  Order,
+  OrderItem,
+  OrderStatus,
+  OrderType,
+  ProductUnit,
+} from "@/domain/types";
+import { listUnitsOfProduct } from "./units";
 
 export type OrderListRow = Order & {
   partner_name: string | null; // tên KH hoặc NCC
@@ -409,6 +416,88 @@ export async function cancelOrder(id: number): Promise<void> {
     `UPDATE orders SET status = 'cancelled' WHERE id = ?`,
     [id],
   );
+}
+
+/**
+ * Dữ liệu cần để pre-fill form khi edit phiếu.
+ * Cho mỗi item: thông tin SP + tồn hiện tại + danh sách unit + unit_id khớp snapshot.
+ */
+export type OrderEditLine = {
+  variant_id: number;
+  product_id: number;
+  product_name: string;
+  sku: string;
+  base_unit: string;
+  base_price_cost: number;
+  base_price_sell: number;
+  stock_base: number; // tồn hiện tại theo base
+  units: ProductUnit[];
+  unit_id: number; // matched từ snapshot unit_name (fallback base)
+  qty: number;
+  price: number;
+};
+
+export async function loadOrderForEdit(
+  orderId: number,
+): Promise<{ order: OrderListRow; lines: OrderEditLine[] }> {
+  const order = await getOrderById(orderId);
+  if (!order) throw new Error("Không tìm thấy đơn");
+
+  const items = await getOrderItems(orderId);
+  const db = await getDb();
+
+  const lines: OrderEditLine[] = await Promise.all(
+    items.map(async (it) => {
+      const rows = await db.select<
+        {
+          product_id: number;
+          product_name: string;
+          sku: string;
+          base_unit: string;
+          base_price_cost: number;
+          base_price_sell: number;
+          stock_base: number;
+        }[]
+      >(
+        `SELECT
+           p.id          AS product_id,
+           p.name        AS product_name,
+           v.sku         AS sku,
+           p.unit        AS base_unit,
+           p.price_cost  AS base_price_cost,
+           p.price_sell  AS base_price_sell,
+           v.stock_qty   AS stock_base
+         FROM product_variants v
+         JOIN products p ON p.id = v.product_id
+         WHERE v.id = ?`,
+        [it.variant_id],
+      );
+      const info = rows[0];
+      const units = await listUnitsOfProduct(info.product_id);
+      // Khớp unit theo name (snapshot). Fallback: base unit.
+      const matched =
+        units.find((u) => u.name === it.unit_name) ??
+        units.find((u) => u.is_base) ??
+        units[0];
+
+      return {
+        variant_id: it.variant_id,
+        product_id: info.product_id,
+        product_name: info.product_name,
+        sku: info.sku,
+        base_unit: info.base_unit,
+        base_price_cost: info.base_price_cost,
+        base_price_sell: info.base_price_sell,
+        stock_base: info.stock_base,
+        units,
+        unit_id: matched?.id ?? 0,
+        qty: it.qty,
+        price: it.price,
+      };
+    }),
+  );
+
+  return { order, lines };
 }
 
 export async function getOrderItems(orderId: number): Promise<

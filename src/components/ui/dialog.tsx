@@ -10,11 +10,14 @@ export const DialogClose = DialogPrimitive.Close;
 export const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, "aria-describedby": ariaDescribedBy, ...props }, ref) => (
   <DialogPrimitive.Portal>
     <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/40 data-[state=open]:animate-in data-[state=open]:fade-in" />
     <DialogPrimitive.Content
       ref={ref}
+      // Tắt warning của Radix khi dialog không có DialogDescription.
+      // Pass undefined explicitly để Radix bỏ qua kiểm tra describedby.
+      aria-describedby={ariaDescribedBy}
       className={cn(
         "fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2",
         "rounded-lg border border-neutral-200 bg-white p-6 shadow-lg",

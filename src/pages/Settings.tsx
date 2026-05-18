@@ -24,6 +24,8 @@ export default function Settings() {
   const [shopName, setShopName] = useState("");
   const [shopAddress, setShopAddress] = useState("");
   const [shopPhone, setShopPhone] = useState("");
+  const [shopBankAccount, setShopBankAccount] = useState("");
+  const [invoiceNote, setInvoiceNote] = useState("");
   const [lowStockThreshold, setLowStockThreshold] = useState("5");
 
   const [dbPath, setDbPath] = useState<string>("");
@@ -34,6 +36,8 @@ export default function Settings() {
       setShopName(settings.shop_name ?? "");
       setShopAddress(settings.shop_address ?? "");
       setShopPhone(settings.shop_phone ?? "");
+      setShopBankAccount(settings.shop_bank_account ?? "");
+      setInvoiceNote(settings.invoice_note ?? "");
       setLowStockThreshold(settings.low_stock_threshold ?? "5");
     }
   }, [settings]);
@@ -59,6 +63,8 @@ export default function Settings() {
         shop_name: shopName.trim(),
         shop_address: shopAddress.trim(),
         shop_phone: shopPhone.trim(),
+        shop_bank_account: shopBankAccount.trim(),
+        invoice_note: invoiceNote,
         low_stock_threshold: String(Number(lowStockThreshold) || 5),
       });
       toast.success("Đã lưu cài đặt");
@@ -130,6 +136,22 @@ export default function Settings() {
           </Field>
           <Field label="Số điện thoại">
             <Input value={shopPhone} onChange={(e) => setShopPhone(e.target.value)} />
+          </Field>
+          <Field label="Số tài khoản ngân hàng (STK) — hiện trên hoá đơn">
+            <Input
+              value={shopBankAccount}
+              onChange={(e) => setShopBankAccount(e.target.value)}
+              placeholder="VD: 19027 456 789 01 - Vietcombank"
+            />
+          </Field>
+          <Field label="Ghi chú trên hoá đơn (Lưu ý)">
+            <textarea
+              value={invoiceNote}
+              onChange={(e) => setInvoiceNote(e.target.value)}
+              rows={3}
+              placeholder="VD: Hàng đổi trả trong 7 ngày, kèm hoá đơn..."
+              className="flex w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            />
           </Field>
           <Field label="Ngưỡng cảnh báo tồn thấp (SP có tồn ≤ giá trị này sẽ cảnh báo)">
             <Input

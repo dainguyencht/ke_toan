@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,8 @@ import {
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { ContactPicker } from "@/components/contacts/ContactPicker";
 import { ProductPicker } from "@/components/products/ProductPicker";
-import { useCreatePurchase } from "@/hooks/useOrders";
+import { useCancelOrder, useCreatePurchase } from "@/hooks/useOrders";
+import { loadOrderForEdit } from "@/db/orders";
 import { formatVND, formatNumber, cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { ProductWithStock } from "@/db/products";
@@ -38,27 +39,73 @@ type Line = {
 type Props = {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  /** Khi truyền: load đơn cũ, edit, submit sẽ hủy + tạo mới. */
+  editOrderId?: number;
+  /** Gọi khi tạo/cập nhật thành công (để parent đóng OrderDetail nếu cần). */
+  onSuccess?: () => void;
 };
 
-export function PurchaseForm({ open, onOpenChange }: Props) {
+export function PurchaseForm({
+  open,
+  onOpenChange,
+  editOrderId,
+  onSuccess,
+}: Props) {
   const [supplierId, setSupplierId] = useState<number | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [paid, setPaid] = useState("0");
   const [note, setNote] = useState("");
+  const [editingCode, setEditingCode] = useState<string | null>(null);
+  const [loadingEdit, setLoadingEdit] = useState(false);
 
   const create = useCreatePurchase();
+  const cancel = useCancelOrder();
+  const isEdit = editOrderId != null;
 
   const reset = () => {
     setSupplierId(null);
     setLines([]);
     setPaid("0");
     setNote("");
+    setEditingCode(null);
   };
 
   const handleClose = (v: boolean) => {
     if (!v) reset();
     onOpenChange(v);
   };
+
+  // Load đơn cũ khi vào edit mode
+  useEffect(() => {
+    if (!open || !editOrderId) return;
+    setLoadingEdit(true);
+    loadOrderForEdit(editOrderId)
+      .then(({ order, lines: editLines }) => {
+        setEditingCode(order.code);
+        setSupplierId(order.supplier_id);
+        setPaid(String(order.paid));
+        setNote(order.note ?? "");
+        setLines(
+          editLines.map((l) => ({
+            variant_id: l.variant_id,
+            product_id: l.product_id,
+            product_name: l.product_name,
+            sku: l.sku,
+            base_price_cost: l.base_price_cost,
+            units: l.units,
+            unit_id: l.unit_id,
+            qty: l.qty,
+            price: l.price,
+          })),
+        );
+      })
+      .catch((err) => {
+        toast.error(`Lỗi load đơn: ${(err as Error).message}`);
+        handleClose(false);
+      })
+      .finally(() => setLoadingEdit(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editOrderId]);
 
   const addProduct = async (p: ProductWithStock | null) => {
     if (!p || !p.default_variant_id) return;
@@ -122,6 +169,44 @@ export function PurchaseForm({ open, onOpenChange }: Props) {
       toast.error("Có công nợ nhưng chưa chọn NCC. Hoặc chọn NCC, hoặc trả đủ.");
       return;
     }
+
+    // Edit mode: hủy đơn cũ + tạo đơn mới (kèm confirm)
+    if (isEdit && editOrderId && editingCode) {
+      const ok = confirm(
+        `Cập nhật phiếu ${editingCode}\n\n` +
+          `• Phiếu cũ ${editingCode} sẽ bị HỦY (tồn/sổ quỹ/công nợ đảo ngược)\n` +
+          `• Một PHIẾU MỚI sẽ được tạo với dữ liệu vừa sửa\n` +
+          `• Phiếu mới có MÃ MỚI khác phiếu cũ\n\n` +
+          `Tiếp tục?`,
+      );
+      if (!ok) return;
+      try {
+        await cancel.mutateAsync(editOrderId);
+        await create.mutateAsync({
+          supplier_id: supplierId,
+          note: note.trim() || null,
+          paid: paidNum,
+          items: lines.map((l) => {
+            const u = l.units.find((x) => x.id === l.unit_id)!;
+            return {
+              variant_id: l.variant_id,
+              product_name: l.product_name,
+              qty: l.qty,
+              price: l.price,
+              unit_name: u.name,
+              unit_factor: u.factor,
+            };
+          }),
+        });
+        toast.success(`Đã cập nhật. Phiếu cũ ${editingCode} đã hủy, phiếu mới đã tạo.`);
+        handleClose(false);
+        onSuccess?.();
+      } catch (err) {
+        toast.error(`Lỗi cập nhật: ${(err as Error).message}`);
+      }
+      return;
+    }
+
     try {
       await create.mutateAsync({
         supplier_id: supplierId,
@@ -141,6 +226,7 @@ export function PurchaseForm({ open, onOpenChange }: Props) {
       });
       toast.success("Đã tạo phiếu nhập");
       handleClose(false);
+      onSuccess?.();
     } catch (err) {
       toast.error(`Lỗi: ${(err as Error).message}`);
     }
@@ -150,8 +236,13 @@ export function PurchaseForm({ open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-5xl">
         <DialogHeader>
-          <DialogTitle>Tạo phiếu nhập kho</DialogTitle>
+          <DialogTitle>
+            {isEdit ? `Cập nhật phiếu nhập ${editingCode ?? "..."}` : "Tạo phiếu nhập kho"}
+          </DialogTitle>
         </DialogHeader>
+        {loadingEdit && (
+          <div className="text-sm text-neutral-500">Đang tải dữ liệu phiếu...</div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
@@ -324,8 +415,15 @@ export function PurchaseForm({ open, onOpenChange }: Props) {
             >
               Trả đủ
             </Button>
-            <Button type="submit" disabled={create.isPending || lines.length === 0}>
-              {create.isPending ? "Đang lưu..." : "Tạo phiếu nhập"}
+            <Button
+              type="submit"
+              disabled={create.isPending || cancel.isPending || lines.length === 0}
+            >
+              {create.isPending || cancel.isPending
+                ? "Đang lưu..."
+                : isEdit
+                  ? "Cập nhật (hủy cũ + tạo mới)"
+                  : "Tạo phiếu nhập"}
             </Button>
           </DialogFooter>
         </form>

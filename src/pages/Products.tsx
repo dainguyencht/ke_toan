@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2, Search, FileSpreadsheet, FileDown } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
@@ -8,7 +8,6 @@ import { ProductForm } from "@/components/products/ProductForm";
 import { ImportProductsDialog } from "@/components/products/ImportProductsDialog";
 import { useArchiveProduct, useProducts } from "@/hooks/useProducts";
 import { formatNumber, formatVND } from "@/lib/utils";
-import { exportProductsToExcel } from "@/lib/excelExport";
 import type { Product } from "@/domain/types";
 import { toast } from "sonner";
 
@@ -49,26 +48,6 @@ export default function Products() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={async () => {
-              if (!products || products.length === 0) {
-                toast.error("Không có sản phẩm để xuất");
-                return;
-              }
-              const res = await exportProductsToExcel(products);
-              if (res.ok) {
-                toast.success(`Đã xuất ${res.count} sản phẩm: ${res.path}`);
-              } else if (res.reason === "error") {
-                toast.error(`Lỗi xuất: ${res.message}`);
-              }
-              // cancelled → không hiện gì
-            }}
-            disabled={!products || products.length === 0}
-          >
-            <FileDown className="w-4 h-4" />
-            Xuất Excel
-          </Button>
           <Button variant="outline" onClick={() => setOpenImport(true)}>
             <FileSpreadsheet className="w-4 h-4" />
             Nhập từ Excel

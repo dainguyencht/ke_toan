@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { XCircle } from "lucide-react";
+import { FileText, Pencil, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,7 +11,11 @@ import {
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Abbr } from "@/components/ui/abbr";
 import { useCancelOrder, useOrder, useOrderItems } from "@/hooks/useOrders";
+import { useContact } from "@/hooks/useContacts";
 import { PayOrderDebtDialog } from "./PayOrderDebtDialog";
+import { PurchaseForm } from "./PurchaseForm";
+import { SaleForm } from "./SaleForm";
+import { InvoicePreviewDialog } from "./InvoicePreviewDialog";
 import { cn, formatDateTime, formatNumber, formatVND } from "@/lib/utils";
 import type { OrderStatus, OrderType } from "@/domain/types";
 import { toast } from "sonner";
@@ -39,8 +43,18 @@ type Props = {
 export function OrderDetail({ open, onOpenChange, orderId }: Props) {
   const { data: order, isLoading } = useOrder(orderId);
   const { data: items = [] } = useOrderItems(orderId);
+  const { data: customer } = useContact(
+    "customer",
+    order?.type === "sale" ? order?.customer_id ?? null : null,
+  );
+  const { data: supplier } = useContact(
+    "supplier",
+    order?.type === "purchase" ? order?.supplier_id ?? null : null,
+  );
   const cancel = useCancelOrder();
   const [payOpen, setPayOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
 
   const handleCancel = async () => {
     if (!order) return;
@@ -64,6 +78,8 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
   const debt = order ? Math.max(0, order.total - order.paid) : 0;
   const isCancelled = order?.status === "cancelled";
   const canCancel = order && !isCancelled && order.type !== "return";
+  const canEdit = canCancel; // cùng điều kiện
+  const canPrint = order && order.type === "sale"; // chỉ in cho đơn bán
   // TODO: tạm tắt — bật lại bằng cách restore điều kiện này:
   //   order && !isCancelled && order.type !== "return" && debt > 0
   const canPay = false;
@@ -221,6 +237,27 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
                     tone="amber"
                   />
                 )}
+                {(() => {
+                  const partner =
+                    order.type === "sale" ? customer : order.type === "purchase" ? supplier : null;
+                  if (!partner) return null;
+                  const currentDebt = partner.debt_amount ?? 0;
+                  const oldDebt = Math.max(0, currentDebt - debt);
+                  const partnerLabel = order.type === "sale" ? "KH" : "NCC";
+                  return (
+                    <>
+                      <Row
+                        label={`Nợ cũ của ${partnerLabel}`}
+                        value={formatVND(oldDebt)}
+                      />
+                      <Row
+                        label={`Tổng nợ hiện tại của ${partnerLabel}`}
+                        value={formatVND(currentDebt)}
+                        tone={currentDebt > 0 ? "amber" : "neutral"}
+                      />
+                    </>
+                  );
+                })()}
                 {canPay && (
                   <div className="pt-2">
                     <Button
@@ -256,6 +293,18 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
               {cancel.isPending ? "Đang hủy..." : "Hủy đơn"}
             </Button>
           )}
+          {canEdit && (
+            <Button variant="secondary" onClick={() => setEditOpen(true)}>
+              <Pencil className="w-4 h-4" />
+              Cập nhật
+            </Button>
+          )}
+          {canPrint && (
+            <Button variant="secondary" onClick={() => setInvoiceOpen(true)}>
+              <FileText className="w-4 h-4" />
+              Xem hoá đơn
+            </Button>
+          )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Đóng
           </Button>
@@ -263,6 +312,30 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
       </DialogContent>
 
       <PayOrderDebtDialog open={payOpen} onOpenChange={setPayOpen} order={order ?? null} />
+
+      <InvoicePreviewDialog
+        order={order ?? null}
+        open={invoiceOpen}
+        onOpenChange={setInvoiceOpen}
+      />
+
+      {/* Edit forms — chỉ mount khi user bấm Cập nhật */}
+      {order && order.type === "purchase" && (
+        <PurchaseForm
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          editOrderId={editOpen ? order.id : undefined}
+          onSuccess={() => onOpenChange(false)}
+        />
+      )}
+      {order && order.type === "sale" && (
+        <SaleForm
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          editOrderId={editOpen ? order.id : undefined}
+          onSuccess={() => onOpenChange(false)}
+        />
+      )}
     </Dialog>
   );
 }
