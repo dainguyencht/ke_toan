@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -9,8 +10,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useCreateCashTransaction } from "@/hooks/useCash";
-import { cn } from "@/lib/utils";
+import {
+  useCreateCashTransaction,
+  useUpdateCashTransaction,
+} from "@/hooks/useCash";
+import { cn, dateTimeLocalToDb, toDateTimeLocalValue } from "@/lib/utils";
+import type { CashRow } from "@/db/cash";
 import { toast } from "sonner";
 
 const PRESETS_IN = ["Thu công nợ KH", "Vốn chủ thêm vào", "Khác"];
@@ -27,6 +32,8 @@ const PRESETS_OUT = [
 type Props = {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  /** Khi truyền: form ở chế độ sửa giao dịch ghi tay. */
+  editTransaction?: CashRow | null;
 };
 
 type FormState = {
@@ -35,23 +42,48 @@ type FormState = {
   category: string;
   customCategory: string;
   note: string;
+  datetime: string; // value cho <input type="datetime-local">
 };
 
-const EMPTY: FormState = {
+const emptyForm = (): FormState => ({
   type: "out",
   amount: "",
   category: "",
   customCategory: "",
   note: "",
-};
+  datetime: toDateTimeLocalValue(new Date()),
+});
 
-export function CashTransactionForm({ open, onOpenChange }: Props) {
-  const [form, setForm] = useState<FormState>(EMPTY);
+export function CashTransactionForm({
+  open,
+  onOpenChange,
+  editTransaction,
+}: Props) {
+  const [form, setForm] = useState<FormState>(emptyForm);
   const create = useCreateCashTransaction();
+  const update = useUpdateCashTransaction();
+  const isEdit = editTransaction != null;
+  const busy = create.isPending || update.isPending;
 
   useEffect(() => {
-    if (open) setForm(EMPTY);
-  }, [open]);
+    if (!open) return;
+    if (editTransaction) {
+      const presets =
+        editTransaction.type === "in" ? PRESETS_IN : PRESETS_OUT;
+      const cat = editTransaction.category ?? "";
+      const known = presets.includes(cat) && cat !== "Khác";
+      setForm({
+        type: editTransaction.type,
+        amount: String(editTransaction.amount),
+        category: known ? cat : "Khác",
+        customCategory: known ? "" : cat,
+        note: editTransaction.note ?? "",
+        datetime: toDateTimeLocalValue(editTransaction.created_at),
+      });
+    } else {
+      setForm(emptyForm());
+    }
+  }, [open, editTransaction]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -71,15 +103,27 @@ export function CashTransactionForm({ open, onOpenChange }: Props) {
       toast.error("Phải chọn hoặc nhập danh mục");
       return;
     }
+    if (!form.datetime) {
+      toast.error("Phải chọn ngày giờ");
+      return;
+    }
+
+    const input = {
+      type: form.type,
+      amount,
+      category: finalCategory,
+      note: form.note.trim() || null,
+      created_at: dateTimeLocalToDb(form.datetime),
+    };
 
     try {
-      await create.mutateAsync({
-        type: form.type,
-        amount,
-        category: finalCategory,
-        note: form.note.trim() || null,
-      });
-      toast.success(form.type === "in" ? "Đã ghi nhận thu" : "Đã ghi nhận chi");
+      if (isEdit && editTransaction) {
+        await update.mutateAsync({ id: editTransaction.id, input });
+        toast.success("Đã cập nhật giao dịch");
+      } else {
+        await create.mutateAsync(input);
+        toast.success(form.type === "in" ? "Đã ghi nhận thu" : "Đã ghi nhận chi");
+      }
       onOpenChange(false);
     } catch (err) {
       toast.error(`Lỗi: ${(err as Error).message}`);
@@ -90,7 +134,9 @@ export function CashTransactionForm({ open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Ghi giao dịch tiền mặt</DialogTitle>
+          <DialogTitle>
+            {isEdit ? "Sửa giao dịch tiền mặt" : "Ghi giao dịch tiền mặt"}
+          </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Toggle Thu / Chi */}
@@ -121,16 +167,23 @@ export function CashTransactionForm({ open, onOpenChange }: Props) {
             </button>
           </div>
 
-          <Field label="Số tiền (VND)">
-            <Input
-              type="number"
-              inputMode="numeric"
-              value={form.amount}
-              onChange={(e) => set("amount", e.target.value)}
-              placeholder="0"
-              autoFocus
-            />
-          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Số tiền (VND)">
+              <NumberInput
+                value={Number(form.amount) || 0}
+                onChange={(n) => set("amount", String(n))}
+                placeholder="0"
+                autoFocus
+              />
+            </Field>
+            <Field label="Ngày giờ">
+              <Input
+                type="datetime-local"
+                value={form.datetime}
+                onChange={(e) => set("datetime", e.target.value)}
+              />
+            </Field>
+          </div>
 
           <Field label="Danh mục">
             <select
@@ -168,8 +221,8 @@ export function CashTransactionForm({ open, onOpenChange }: Props) {
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Hủy
             </Button>
-            <Button type="submit" disabled={create.isPending}>
-              {create.isPending ? "Đang lưu..." : "Lưu"}
+            <Button type="submit" disabled={busy}>
+              {busy ? "Đang lưu..." : isEdit ? "Cập nhật" : "Lưu"}
             </Button>
           </DialogFooter>
         </form>

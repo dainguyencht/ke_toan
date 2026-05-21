@@ -65,6 +65,34 @@ export function toISODate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/**
+ * Date → 'YYYY-MM-DD HH:MM:SS' theo giờ LOCAL — định dạng lưu created_at.
+ * Dùng giờ local (không phải UTC) để hiển thị lại đúng với giờ người dùng nhập.
+ */
+export function dbDateTime(d: Date = new Date()): string {
+  return (
+    `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
+    `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
+  );
+}
+
+/** Chuỗi created_at hoặc Date → value cho <input type="datetime-local"> ('YYYY-MM-DDTHH:mm') */
+export function toDateTimeLocalValue(value: string | Date): string {
+  const d = typeof value === "string" ? new Date(value) : value;
+  return (
+    `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` +
+    `T${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  );
+}
+
+/** Value từ <input type="datetime-local"> ('YYYY-MM-DDTHH:mm') → 'YYYY-MM-DD HH:MM:SS' để lưu DB */
+export function dateTimeLocalToDb(v: string): string {
+  if (!v) return dbDateTime();
+  return v.replace("T", " ") + (v.length === 16 ? ":00" : "");
+}
+
 /** Lấy 'YYYY-MM-DD' cho N ngày trước (0 = hôm nay) */
 export function daysAgo(n: number): string {
   const d = new Date();

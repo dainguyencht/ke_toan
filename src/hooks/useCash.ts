@@ -4,6 +4,7 @@ import {
   deleteCashTransaction,
   getCashSummary,
   listCashTransactions,
+  updateCashTransaction,
   type CashFilter,
   type CashInput,
 } from "@/db/cash";
@@ -28,6 +29,15 @@ export function useCreateCashTransaction() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: CashInput) => createCashTransaction(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}
+
+export function useUpdateCashTransaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: number; input: CashInput }) =>
+      updateCashTransaction(id, input),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
 }

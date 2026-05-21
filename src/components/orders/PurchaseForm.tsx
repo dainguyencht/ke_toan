@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -15,7 +16,13 @@ import { ContactPicker } from "@/components/contacts/ContactPicker";
 import { ProductPicker } from "@/components/products/ProductPicker";
 import { useCancelOrder, useCreatePurchase } from "@/hooks/useOrders";
 import { loadOrderForEdit } from "@/db/orders";
-import { formatVND, formatNumber, cn } from "@/lib/utils";
+import {
+  formatVND,
+  formatNumber,
+  cn,
+  dateTimeLocalToDb,
+  toDateTimeLocalValue,
+} from "@/lib/utils";
 import { toast } from "sonner";
 import type { ProductWithStock } from "@/db/products";
 import type { ProductUnit } from "@/domain/types";
@@ -55,6 +62,9 @@ export function PurchaseForm({
   const [lines, setLines] = useState<Line[]>([]);
   const [paid, setPaid] = useState("0");
   const [note, setNote] = useState("");
+  const [orderDate, setOrderDate] = useState(() =>
+    toDateTimeLocalValue(new Date()),
+  );
   const [editingCode, setEditingCode] = useState<string | null>(null);
   const [loadingEdit, setLoadingEdit] = useState(false);
 
@@ -67,6 +77,7 @@ export function PurchaseForm({
     setLines([]);
     setPaid("0");
     setNote("");
+    setOrderDate(toDateTimeLocalValue(new Date()));
     setEditingCode(null);
   };
 
@@ -85,6 +96,7 @@ export function PurchaseForm({
         setSupplierId(order.supplier_id);
         setPaid(String(order.paid));
         setNote(order.note ?? "");
+        setOrderDate(toDateTimeLocalValue(order.created_at));
         setLines(
           editLines.map((l) => ({
             variant_id: l.variant_id,
@@ -186,6 +198,7 @@ export function PurchaseForm({
           supplier_id: supplierId,
           note: note.trim() || null,
           paid: paidNum,
+          created_at: dateTimeLocalToDb(orderDate),
           items: lines.map((l) => {
             const u = l.units.find((x) => x.id === l.unit_id)!;
             return {
@@ -212,6 +225,7 @@ export function PurchaseForm({
         supplier_id: supplierId,
         note: note.trim() || null,
         paid: paidNum,
+        created_at: dateTimeLocalToDb(orderDate),
         items: lines.map((l) => {
           const u = l.units.find((x) => x.id === l.unit_id)!;
           return {
@@ -245,12 +259,19 @@ export function PurchaseForm({
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <Field label="Nhà cung cấp (NCC)">
               <ContactPicker
                 kind="supplier"
                 value={supplierId}
                 onChange={setSupplierId}
+              />
+            </Field>
+            <Field label="Ngày giờ phiếu">
+              <Input
+                type="datetime-local"
+                value={orderDate}
+                onChange={(e) => setOrderDate(e.target.value)}
               />
             </Field>
             <Field label="Ghi chú">
@@ -329,13 +350,9 @@ export function PurchaseForm({
                           )}
                         </TD>
                         <TD>
-                          <Input
-                            type="number"
-                            inputMode="numeric"
+                          <NumberInput
                             value={l.price}
-                            onChange={(e) =>
-                              updateLine(idx, { price: Number(e.target.value) })
-                            }
+                            onChange={(n) => updateLine(idx, { price: n })}
                             className="text-right h-8"
                           />
                           {currentUnit && (
@@ -386,11 +403,9 @@ export function PurchaseForm({
               </div>
               <div className="flex items-center justify-between gap-2">
                 <Label className="shrink-0">Đã trả:</Label>
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  value={paid}
-                  onChange={(e) => setPaid(e.target.value)}
+                <NumberInput
+                  value={Number(paid) || 0}
+                  onChange={(n) => setPaid(String(n))}
                   className="text-right max-w-40 h-8"
                 />
               </div>

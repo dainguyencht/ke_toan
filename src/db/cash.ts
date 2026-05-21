@@ -1,4 +1,5 @@
 import { getDb } from "./client";
+import { dbDateTime } from "@/lib/utils";
 import type { CashTransaction } from "@/domain/types";
 
 export type CashFilter = {
@@ -16,6 +17,8 @@ export type CashInput = {
   amount: number;
   category: string | null;
   note?: string | null;
+  /** Ngày giờ giao dịch dạng 'YYYY-MM-DD HH:MM:SS'. Bỏ trống = thời điểm hiện tại. */
+  created_at?: string;
 };
 
 export type CashSummary = {
@@ -83,11 +86,52 @@ export async function createCashTransaction(input: CashInput): Promise<number> {
   const db = await getDb();
   if (input.amount <= 0) throw new Error("Số tiền phải > 0");
   const result = await db.execute(
-    `INSERT INTO cash_transactions (type, amount, category, note)
-     VALUES (?, ?, ?, ?)`,
-    [input.type, input.amount, input.category ?? null, input.note ?? null],
+    `INSERT INTO cash_transactions (type, amount, category, note, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    [
+      input.type,
+      input.amount,
+      input.category ?? null,
+      input.note ?? null,
+      input.created_at ?? dbDateTime(),
+    ],
   );
   return Number(result.lastInsertId);
+}
+
+/**
+ * Sửa giao dịch ghi tay. Không cho sửa giao dịch tự sinh từ đơn hàng
+ * (ref_table='orders') — phải sửa đơn hàng tương ứng.
+ */
+export async function updateCashTransaction(
+  id: number,
+  input: CashInput,
+): Promise<void> {
+  const db = await getDb();
+  if (input.amount <= 0) throw new Error("Số tiền phải > 0");
+  const rows = await db.select<{ ref_table: string | null }[]>(
+    "SELECT ref_table FROM cash_transactions WHERE id = ?",
+    [id],
+  );
+  if (rows.length === 0) throw new Error("Không tìm thấy giao dịch");
+  if (rows[0].ref_table) {
+    throw new Error(
+      "Không thể sửa giao dịch tự sinh từ đơn hàng. Hãy sửa đơn hàng tương ứng.",
+    );
+  }
+  await db.execute(
+    `UPDATE cash_transactions
+        SET type = ?, amount = ?, category = ?, note = ?, created_at = ?
+      WHERE id = ?`,
+    [
+      input.type,
+      input.amount,
+      input.category ?? null,
+      input.note ?? null,
+      input.created_at ?? dbDateTime(),
+      id,
+    ],
+  );
 }
 
 export async function deleteCashTransaction(id: number): Promise<void> {

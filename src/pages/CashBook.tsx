@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, TrendingUp, TrendingDown, Wallet, Trash2 } from "lucide-react";
+import { Plus, TrendingUp, TrendingDown, Wallet, Trash2, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -10,7 +10,7 @@ import {
   useDeleteCashTransaction,
 } from "@/hooks/useCash";
 import { cn, daysAgo, formatDateTime, formatVND } from "@/lib/utils";
-import type { CashFilter } from "@/db/cash";
+import type { CashFilter, CashRow } from "@/db/cash";
 import { toast } from "sonner";
 
 type PresetRange = "today" | "7d" | "30d" | "all";
@@ -26,6 +26,7 @@ export default function CashBook() {
   const [range, setRange] = useState<PresetRange>("30d");
   const [typeFilter, setTypeFilter] = useState<"all" | "in" | "out">("all");
   const [openForm, setOpenForm] = useState(false);
+  const [editTx, setEditTx] = useState<CashRow | null>(null);
 
   const filter = useMemo<CashFilter>(
     () => ({
@@ -59,7 +60,12 @@ export default function CashBook() {
             Thu/chi tiền mặt, tự động ghi từ đơn hàng + ghi tay
           </p>
         </div>
-        <Button onClick={() => setOpenForm(true)}>
+        <Button
+          onClick={() => {
+            setEditTx(null);
+            setOpenForm(true);
+          }}
+        >
           <Plus className="w-4 h-4" />
           Ghi thu/chi
         </Button>
@@ -182,16 +188,29 @@ export default function CashBook() {
                   </TD>
                   <TD>
                     {!t.ref_table && (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() =>
-                          handleDelete(t.id, `${t.category} - ${formatVND(t.amount)}`)
-                        }
-                        title="Xóa"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => {
+                            setEditTx(t);
+                            setOpenForm(true);
+                          }}
+                          title="Sửa"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() =>
+                            handleDelete(t.id, `${t.category} - ${formatVND(t.amount)}`)
+                          }
+                          title="Xóa"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     )}
                   </TD>
                 </TR>
@@ -201,7 +220,14 @@ export default function CashBook() {
         )}
       </div>
 
-      <CashTransactionForm open={openForm} onOpenChange={setOpenForm} />
+      <CashTransactionForm
+        open={openForm}
+        onOpenChange={(v) => {
+          setOpenForm(v);
+          if (!v) setEditTx(null);
+        }}
+        editTransaction={editTx}
+      />
     </div>
   );
 }

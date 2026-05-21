@@ -6,6 +6,7 @@ import type {
   OrderType,
   ProductUnit,
 } from "@/domain/types";
+import { dbDateTime } from "@/lib/utils";
 import { listUnitsOfProduct } from "./units";
 
 export type OrderListRow = Order & {
@@ -18,6 +19,8 @@ export type PurchaseInput = {
   note?: string | null;
   paid: number; // số đã trả NCC
   items: PurchaseLine[];
+  /** Ngày giờ phiếu dạng 'YYYY-MM-DD HH:MM:SS'. Bỏ trống = thời điểm hiện tại. */
+  created_at?: string;
 };
 
 export type PurchaseLine = {
@@ -34,6 +37,8 @@ export type SaleInput = {
   note?: string | null;
   paid: number; // số tiền KH đã thanh toán
   items: SaleLine[];
+  /** Ngày giờ phiếu dạng 'YYYY-MM-DD HH:MM:SS'. Bỏ trống = thời điểm hiện tại. */
+  created_at?: string;
 };
 
 export type SaleLine = {
@@ -46,16 +51,22 @@ export type SaleLine = {
 };
 
 /**
- * Sinh code cho đơn: PN-YYYYMMDD-NNN (purchase), HD-... (sale), TR-... (return)
+ * Sinh code cho đơn: PN-YYYYMMDD-NNN (purchase), HD-... (sale), TR-... (return).
+ * `dateStr` (YYYYMMDD) lấy theo ngày của phiếu — bỏ trống thì dùng hôm nay.
  */
-async function generateOrderCode(type: OrderType): Promise<string> {
+async function generateOrderCode(
+  type: OrderType,
+  dateStr?: string,
+): Promise<string> {
   const db = await getDb();
   const prefix = type === "purchase" ? "PN" : type === "sale" ? "HD" : "TR";
-  const today = new Date();
-  const dateStr =
-    today.getFullYear().toString() +
-    String(today.getMonth() + 1).padStart(2, "0") +
-    String(today.getDate()).padStart(2, "0");
+  if (!dateStr) {
+    const today = new Date();
+    dateStr =
+      today.getFullYear().toString() +
+      String(today.getMonth() + 1).padStart(2, "0") +
+      String(today.getDate()).padStart(2, "0");
+  }
   const like = `${prefix}-${dateStr}-%`;
   const rows = await db.select<{ c: number }[]>(
     "SELECT COUNT(*) AS c FROM orders WHERE code LIKE ?",
@@ -81,15 +92,28 @@ export async function createPurchase(input: PurchaseInput): Promise<number> {
   const subtotal = input.items.reduce((s, l) => s + l.qty * l.price, 0);
   const total = subtotal; // chưa có discount cho phiếu nhập
   const paid = Math.min(input.paid, total);
-  const code = await generateOrderCode("purchase");
+  const createdAt = input.created_at ?? dbDateTime();
+  const code = await generateOrderCode(
+    "purchase",
+    createdAt.slice(0, 10).replace(/-/g, ""),
+  );
   const status: OrderStatus = paid >= total ? "paid" : "delivered";
 
   // 1. Tạo order
   const orderResult = await db.execute(
     `INSERT INTO orders
-       (code, type, supplier_id, subtotal, discount, total, paid, status, note)
-     VALUES (?, 'purchase', ?, ?, 0, ?, ?, ?, ?)`,
-    [code, input.supplier_id, subtotal, total, paid, status, input.note ?? null],
+       (code, type, supplier_id, subtotal, discount, total, paid, status, note, created_at)
+     VALUES (?, 'purchase', ?, ?, 0, ?, ?, ?, ?, ?)`,
+    [
+      code,
+      input.supplier_id,
+      subtotal,
+      total,
+      paid,
+      status,
+      input.note ?? null,
+      createdAt,
+    ],
   );
   const orderId = Number(orderResult.lastInsertId);
 
@@ -113,13 +137,14 @@ export async function createPurchase(input: PurchaseInput): Promise<number> {
       ],
     );
     await db.execute(
-      `INSERT INTO stock_movements (variant_id, qty_change, type, ref_table, ref_id, note)
-       VALUES (?, ?, 'purchase', 'orders', ?, ?)`,
+      `INSERT INTO stock_movements (variant_id, qty_change, type, ref_table, ref_id, note, created_at)
+       VALUES (?, ?, 'purchase', 'orders', ?, ?, ?)`,
       [
         line.variant_id,
         qtyBase,
         orderId,
         `Nhập từ phiếu ${code} (${line.qty} ${line.unit_name})`,
+        createdAt,
       ],
     );
     await db.execute(
@@ -138,9 +163,9 @@ export async function createPurchase(input: PurchaseInput): Promise<number> {
   // 3. Sổ quỹ: ghi chi nếu có trả tiền
   if (paid > 0) {
     await db.execute(
-      `INSERT INTO cash_transactions (type, amount, category, ref_table, ref_id, note)
-       VALUES ('out', ?, 'Trả NCC', 'orders', ?, ?)`,
-      [paid, orderId, `Trả tiền phiếu ${code}`],
+      `INSERT INTO cash_transactions (type, amount, category, ref_table, ref_id, note, created_at)
+       VALUES ('out', ?, 'Trả NCC', 'orders', ?, ?, ?)`,
+      [paid, orderId, `Trả tiền phiếu ${code}`, createdAt],
     );
   }
 
@@ -170,7 +195,11 @@ export async function createSale(input: SaleInput): Promise<number> {
   const subtotal = input.items.reduce((s, l) => s + l.qty * l.price, 0);
   const total = subtotal;
   const paid = Math.min(input.paid, total);
-  const code = await generateOrderCode("sale");
+  const createdAt = input.created_at ?? dbDateTime();
+  const code = await generateOrderCode(
+    "sale",
+    createdAt.slice(0, 10).replace(/-/g, ""),
+  );
   const status: OrderStatus = paid >= total ? "paid" : "delivered";
 
   // Lấy giá vốn hiện tại cho từng variant (snapshot vào order_items để tính lãi sau này)
@@ -188,9 +217,18 @@ export async function createSale(input: SaleInput): Promise<number> {
   // 1. Tạo order
   const orderResult = await db.execute(
     `INSERT INTO orders
-       (code, type, customer_id, subtotal, discount, total, paid, status, note)
-     VALUES (?, 'sale', ?, ?, 0, ?, ?, ?, ?)`,
-    [code, input.customer_id, subtotal, total, paid, status, input.note ?? null],
+       (code, type, customer_id, subtotal, discount, total, paid, status, note, created_at)
+     VALUES (?, 'sale', ?, ?, 0, ?, ?, ?, ?, ?)`,
+    [
+      code,
+      input.customer_id,
+      subtotal,
+      total,
+      paid,
+      status,
+      input.note ?? null,
+      createdAt,
+    ],
   );
   const orderId = Number(orderResult.lastInsertId);
 
@@ -217,13 +255,14 @@ export async function createSale(input: SaleInput): Promise<number> {
       ],
     );
     await db.execute(
-      `INSERT INTO stock_movements (variant_id, qty_change, type, ref_table, ref_id, note)
-       VALUES (?, ?, 'sale', 'orders', ?, ?)`,
+      `INSERT INTO stock_movements (variant_id, qty_change, type, ref_table, ref_id, note, created_at)
+       VALUES (?, ?, 'sale', 'orders', ?, ?, ?)`,
       [
         line.variant_id,
         -qtyBase,
         orderId,
         `Bán theo phiếu ${code} (${line.qty} ${line.unit_name})`,
+        createdAt,
       ],
     );
     await db.execute(
@@ -235,9 +274,9 @@ export async function createSale(input: SaleInput): Promise<number> {
   // 3. Sổ quỹ: ghi thu nếu có nhận tiền
   if (paid > 0) {
     await db.execute(
-      `INSERT INTO cash_transactions (type, amount, category, ref_table, ref_id, note)
-       VALUES ('in', ?, 'Thu bán hàng', 'orders', ?, ?)`,
-      [paid, orderId, `Thu tiền phiếu ${code}`],
+      `INSERT INTO cash_transactions (type, amount, category, ref_table, ref_id, note, created_at)
+       VALUES ('in', ?, 'Thu bán hàng', 'orders', ?, ?, ?)`,
+      [paid, orderId, `Thu tiền phiếu ${code}`, createdAt],
     );
   }
 
@@ -319,8 +358,13 @@ export async function listOrders(
   limit = 200,
 ): Promise<OrderListRow[]> {
   const db = await getDb();
-  const where = type === "all" ? "" : "WHERE o.type = ?";
-  const params = type === "all" ? [limit] : [type, limit];
+  const conds = ["o.status != 'cancelled'"];
+  const params: unknown[] = [];
+  if (type !== "all") {
+    conds.push("o.type = ?");
+    params.push(type);
+  }
+  params.push(limit);
   const sql = `
     SELECT
       o.*,
@@ -329,7 +373,7 @@ export async function listOrders(
     FROM orders o
     LEFT JOIN customers c ON c.id = o.customer_id
     LEFT JOIN suppliers s ON s.id = o.supplier_id
-    ${where}
+    WHERE ${conds.join(" AND ")}
     ORDER BY o.created_at DESC
     LIMIT ?
   `;

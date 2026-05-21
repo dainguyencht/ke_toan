@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -15,7 +16,13 @@ import { ContactPicker } from "@/components/contacts/ContactPicker";
 import { ProductPicker } from "@/components/products/ProductPicker";
 import { useCancelOrder, useCreateSale } from "@/hooks/useOrders";
 import { loadOrderForEdit } from "@/db/orders";
-import { cn, formatNumber, formatVND } from "@/lib/utils";
+import {
+  cn,
+  dateTimeLocalToDb,
+  formatNumber,
+  formatVND,
+  toDateTimeLocalValue,
+} from "@/lib/utils";
 import { toast } from "sonner";
 import type { ProductWithStock } from "@/db/products";
 import type { ProductUnit } from "@/domain/types";
@@ -48,6 +55,9 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
   const [lines, setLines] = useState<Line[]>([]);
   const [paid, setPaid] = useState("0");
   const [note, setNote] = useState("");
+  const [orderDate, setOrderDate] = useState(() =>
+    toDateTimeLocalValue(new Date()),
+  );
   const [editingCode, setEditingCode] = useState<string | null>(null);
   const [loadingEdit, setLoadingEdit] = useState(false);
 
@@ -60,6 +70,7 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
     setLines([]);
     setPaid("0");
     setNote("");
+    setOrderDate(toDateTimeLocalValue(new Date()));
     setEditingCode(null);
   };
 
@@ -77,6 +88,7 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
         setCustomerId(order.customer_id);
         setPaid(String(order.paid));
         setNote(order.note ?? "");
+        setOrderDate(toDateTimeLocalValue(order.created_at));
         setLines(
           editLines.map((l) => ({
             variant_id: l.variant_id,
@@ -206,6 +218,7 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
           note: note.trim() || null,
           paid: paidNum,
           items: itemsPayload,
+          created_at: dateTimeLocalToDb(orderDate),
         });
         toast.success(`Đã cập nhật. Phiếu cũ ${editingCode} đã hủy, phiếu mới đã tạo.`);
         handleClose(false);
@@ -222,6 +235,7 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
         note: note.trim() || null,
         paid: paidNum,
         items: itemsPayload,
+        created_at: dateTimeLocalToDb(orderDate),
       });
       toast.success("Đã tạo phiếu bán");
       handleClose(false);
@@ -244,12 +258,19 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <Field label="Khách hàng (KH)">
               <ContactPicker
                 kind="customer"
                 value={customerId}
                 onChange={setCustomerId}
+              />
+            </Field>
+            <Field label="Ngày giờ phiếu">
+              <Input
+                type="datetime-local"
+                value={orderDate}
+                onChange={(e) => setOrderDate(e.target.value)}
               />
             </Field>
             <Field label="Ghi chú">
@@ -347,13 +368,9 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
                           )}
                         </TD>
                         <TD>
-                          <Input
-                            type="number"
-                            inputMode="numeric"
+                          <NumberInput
                             value={l.price}
-                            onChange={(e) =>
-                              updateLine(idx, { price: Number(e.target.value) })
-                            }
+                            onChange={(n) => updateLine(idx, { price: n })}
                             className="text-right h-8"
                           />
                           {currentUnit && (
@@ -414,11 +431,9 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
               </div>
               <div className="flex items-center justify-between gap-2">
                 <Label className="shrink-0">Đã thu:</Label>
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  value={paid}
-                  onChange={(e) => setPaid(e.target.value)}
+                <NumberInput
+                  value={Number(paid) || 0}
+                  onChange={(n) => setPaid(String(n))}
                   className="text-right max-w-40 h-8"
                 />
               </div>

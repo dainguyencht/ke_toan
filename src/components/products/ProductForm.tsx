@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -232,19 +233,15 @@ export function ProductForm({ open, onOpenChange, product }: Props) {
               />
             </Field>
             <Field label="Giá vốn (VND)">
-              <Input
-                type="number"
-                inputMode="numeric"
-                value={form.price_cost}
-                onChange={(e) => set("price_cost", e.target.value)}
+              <NumberInput
+                value={Number(form.price_cost) || 0}
+                onChange={(n) => set("price_cost", String(n))}
               />
             </Field>
             <Field label="Giá bán (VND)">
-              <Input
-                type="number"
-                inputMode="numeric"
-                value={form.price_sell}
-                onChange={(e) => set("price_sell", e.target.value)}
+              <NumberInput
+                value={Number(form.price_sell) || 0}
+                onChange={(n) => set("price_sell", String(n))}
               />
             </Field>
           </div>
