@@ -6,6 +6,7 @@ import {
   getOrderById,
   getOrderItems,
   listOrders,
+  listOrdersByContact,
   payOrderDebt,
   type PurchaseInput,
   type SaleInput,
@@ -26,6 +27,18 @@ export function useOrderItems(orderId: number | null) {
     queryKey: [...KEY, "items", orderId],
     queryFn: () => (orderId ? getOrderItems(orderId) : Promise.resolve([])),
     enabled: orderId != null,
+  });
+}
+
+export function useOrdersByContact(
+  kind: "customer" | "supplier",
+  contactId: number | null,
+) {
+  return useQuery({
+    queryKey: [...KEY, "by-contact", kind, contactId],
+    queryFn: () =>
+      contactId ? listOrdersByContact(kind, contactId) : Promise.resolve([]),
+    enabled: contactId != null,
   });
 }
 

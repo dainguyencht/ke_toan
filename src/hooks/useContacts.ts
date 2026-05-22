@@ -59,11 +59,13 @@ export function usePayDebt(kind: ContactKind) {
       contactId,
       amount,
       note,
+      createdAt,
     }: {
       contactId: number;
       amount: number;
       note?: string | null;
-    }) => payDebt(kind, contactId, amount, note),
+      createdAt?: string;
+    }) => payDebt(kind, contactId, amount, note, createdAt),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEY(kind) });
       qc.invalidateQueries({ queryKey: ["cash"] });

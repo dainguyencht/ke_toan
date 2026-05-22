@@ -4,7 +4,9 @@ import {
   deleteCashTransaction,
   getCashSummary,
   listCashTransactions,
+  listContactDebtPayments,
   updateCashTransaction,
+  updateCashTransactionDate,
   type CashFilter,
   type CashInput,
 } from "@/db/cash";
@@ -25,6 +27,20 @@ export function useCashSummary(filter: CashFilter) {
   });
 }
 
+export function useContactDebtPayments(
+  kind: "customer" | "supplier",
+  contactId: number | null,
+) {
+  return useQuery({
+    queryKey: [...KEY, "debt-payments", kind, contactId],
+    queryFn: () =>
+      contactId
+        ? listContactDebtPayments(kind, contactId)
+        : Promise.resolve([]),
+    enabled: contactId != null,
+  });
+}
+
 export function useCreateCashTransaction() {
   const qc = useQueryClient();
   return useMutation({
@@ -38,6 +54,15 @@ export function useUpdateCashTransaction() {
   return useMutation({
     mutationFn: ({ id, input }: { id: number; input: CashInput }) =>
       updateCashTransaction(id, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}
+
+export function useUpdateCashTransactionDate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, createdAt }: { id: number; createdAt: string }) =>
+      updateCashTransactionDate(id, createdAt),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
 }

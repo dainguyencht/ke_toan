@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -10,7 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { usePayDebt } from "@/hooks/useContacts";
-import { formatVND } from "@/lib/utils";
+import { dateTimeLocalToDb, formatVND, toDateTimeLocalValue } from "@/lib/utils";
 import type { Contact, ContactKind } from "@/db/contacts";
 import { toast } from "sonner";
 
@@ -29,6 +30,7 @@ const LABEL: Record<ContactKind, { title: string; verb: string; amountLabel: str
 export function PayDebtDialog({ open, onOpenChange, kind, contact }: Props) {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [datetime, setDatetime] = useState("");
   const pay = usePayDebt(kind);
   const labels = LABEL[kind];
 
@@ -36,6 +38,7 @@ export function PayDebtDialog({ open, onOpenChange, kind, contact }: Props) {
     if (open && contact) {
       setAmount(String(contact.debt_amount));
       setNote("");
+      setDatetime(toDateTimeLocalValue(new Date()));
     }
   }, [open, contact]);
 
@@ -55,11 +58,16 @@ export function PayDebtDialog({ open, onOpenChange, kind, contact }: Props) {
       toast.error("Số tiền lớn hơn công nợ");
       return;
     }
+    if (!datetime) {
+      toast.error("Phải chọn ngày giờ");
+      return;
+    }
     try {
       await pay.mutateAsync({
         contactId: contact.id,
         amount: amountNum,
         note: note.trim() || null,
+        createdAt: dateTimeLocalToDb(datetime),
       });
       toast.success(`Đã ${labels.verb} ${formatVND(amountNum)}`);
       onOpenChange(false);
@@ -91,21 +99,28 @@ export function PayDebtDialog({ open, onOpenChange, kind, contact }: Props) {
             </div>
           </div>
 
-          <Field label={labels.amountLabel}>
-            <Input
-              type="number"
-              inputMode="numeric"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              autoFocus
-              className={tooMuch ? "border-red-500 ring-1 ring-red-300" : ""}
-            />
-            {tooMuch && (
-              <p className="text-xs text-red-600 mt-1">
-                Số tiền lớn hơn công nợ ({formatVND(debt)})
-              </p>
-            )}
-          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={labels.amountLabel}>
+              <NumberInput
+                value={amountNum}
+                onChange={(n) => setAmount(String(n))}
+                autoFocus
+                className={tooMuch ? "border-red-500 ring-1 ring-red-300" : ""}
+              />
+              {tooMuch && (
+                <p className="text-xs text-red-600 mt-1">
+                  Số tiền lớn hơn công nợ ({formatVND(debt)})
+                </p>
+              )}
+            </Field>
+            <Field label="Ngày giờ">
+              <Input
+                type="datetime-local"
+                value={datetime}
+                onChange={(e) => setDatetime(e.target.value)}
+              />
+            </Field>
+          </div>
 
           <div className="text-sm text-neutral-600 flex justify-between border-t pt-2">
             <span>Còn lại sau khi {labels.verb}:</span>

@@ -6,6 +6,7 @@ import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Abbr } from "@/components/ui/abbr";
 import { ContactForm } from "./ContactForm";
 import { PayDebtDialog } from "./PayDebtDialog";
+import { ContactOrdersDialog } from "./ContactOrdersDialog";
 import { useContacts, useDeleteContact } from "@/hooks/useContacts";
 import { formatVND } from "@/lib/utils";
 import type { Contact, ContactKind } from "@/db/contacts";
@@ -25,6 +26,7 @@ export function ContactList({ kind }: Props) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Contact | null>(null);
   const [payingDebt, setPayingDebt] = useState<Contact | null>(null);
+  const [viewingOrders, setViewingOrders] = useState<Contact | null>(null);
 
   const { data, isLoading, error } = useContacts(kind, search);
   const del = useDeleteContact(kind);
@@ -103,12 +105,22 @@ export function ContactList({ kind }: Props) {
             </THead>
             <TBody>
               {data.map((c) => (
-                <TR key={c.id}>
+                <TR
+                  key={c.id}
+                  onClick={() => setViewingOrders(c)}
+                  className="cursor-pointer"
+                  title={
+                    kind === "customer"
+                      ? "Xem phiếu bán của khách hàng này"
+                      : "Xem phiếu nhập từ NCC này"
+                  }
+                >
                   <TD className="font-medium">{c.name}</TD>
                   <TD className="text-neutral-600">
                     {c.phone ? (
                       <a
                         href={`tel:${c.phone}`}
+                        onClick={(e) => e.stopPropagation()}
                         className="inline-flex items-center gap-1 hover:text-brand-600"
                       >
                         <Phone className="w-3 h-3" />
@@ -132,7 +144,7 @@ export function ContactList({ kind }: Props) {
                       {formatVND(c.debt_amount)}
                     </span>
                   </TD>
-                  <TD>
+                  <TD onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
                       {c.debt_amount > 0 && (
                         <Button
@@ -175,6 +187,12 @@ export function ContactList({ kind }: Props) {
         onOpenChange={(o) => !o && setPayingDebt(null)}
         kind={kind}
         contact={payingDebt}
+      />
+      <ContactOrdersDialog
+        open={viewingOrders != null}
+        onOpenChange={(o) => !o && setViewingOrders(null)}
+        kind={kind}
+        contact={viewingOrders}
       />
     </div>
   );

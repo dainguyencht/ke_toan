@@ -82,6 +82,24 @@ export async function getCashSummary(filter: CashFilter = {}): Promise<CashSumma
   return { total_in, total_out, balance: total_in - total_out };
 }
 
+/**
+ * Các phiếu thu nợ / trả nợ của 1 đối tác (giao dịch sổ quỹ gắn ref tới
+ * customers/suppliers — sinh từ chức năng Thu nợ / Trả nợ).
+ */
+export async function listContactDebtPayments(
+  kind: "customer" | "supplier",
+  contactId: number,
+): Promise<CashTransaction[]> {
+  const db = await getDb();
+  const table = kind === "customer" ? "customers" : "suppliers";
+  return await db.select<CashTransaction[]>(
+    `SELECT * FROM cash_transactions
+     WHERE ref_table = ? AND ref_id = ?
+     ORDER BY created_at DESC`,
+    [table, contactId],
+  );
+}
+
 export async function createCashTransaction(input: CashInput): Promise<number> {
   const db = await getDb();
   if (input.amount <= 0) throw new Error("Số tiền phải > 0");
@@ -97,6 +115,21 @@ export async function createCashTransaction(input: CashInput): Promise<number> {
     ],
   );
   return Number(result.lastInsertId);
+}
+
+/**
+ * Sửa riêng ngày giờ của 1 giao dịch — áp dụng cho MỌI giao dịch,
+ * kể cả giao dịch tự sinh từ đơn hàng / thu-trả nợ.
+ */
+export async function updateCashTransactionDate(
+  id: number,
+  createdAt: string,
+): Promise<void> {
+  const db = await getDb();
+  await db.execute("UPDATE cash_transactions SET created_at = ? WHERE id = ?", [
+    createdAt,
+    id,
+  ]);
 }
 
 /**

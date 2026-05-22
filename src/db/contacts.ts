@@ -1,4 +1,5 @@
 import { getDb } from "./client";
+import { dbDateTime } from "@/lib/utils";
 import type { Customer, Supplier } from "@/domain/types";
 
 export type ContactKind = "customer" | "supplier";
@@ -77,6 +78,7 @@ export async function payDebt(
   contactId: number,
   amount: number,
   note?: string | null,
+  createdAt?: string,
 ): Promise<void> {
   if (amount <= 0) throw new Error("Số tiền phải > 0");
 
@@ -100,9 +102,17 @@ export async function payDebt(
   const finalNote = note?.trim() || `${category}: ${c.name}`;
 
   await db.execute(
-    `INSERT INTO cash_transactions (type, amount, category, ref_table, ref_id, note)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [cashType, amount, category, table, contactId, finalNote],
+    `INSERT INTO cash_transactions (type, amount, category, ref_table, ref_id, note, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      cashType,
+      amount,
+      category,
+      table,
+      contactId,
+      finalNote,
+      createdAt ?? dbDateTime(),
+    ],
   );
   await db.execute(
     `UPDATE ${table} SET debt_amount = debt_amount - ? WHERE id = ?`,

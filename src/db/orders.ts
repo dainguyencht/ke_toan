@@ -380,6 +380,30 @@ export async function listOrders(
   return await db.select<OrderListRow[]>(sql, params);
 }
 
+/**
+ * Danh sách phiếu của 1 đối tác: phiếu bán cho khách hàng, phiếu nhập từ NCC.
+ * Bỏ qua phiếu đã huỷ.
+ */
+export async function listOrdersByContact(
+  kind: "customer" | "supplier",
+  contactId: number,
+): Promise<OrderListRow[]> {
+  const db = await getDb();
+  const col = kind === "customer" ? "o.customer_id" : "o.supplier_id";
+  return await db.select<OrderListRow[]>(
+    `SELECT
+       o.*,
+       COALESCE(c.name, s.name) AS partner_name,
+       (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) AS item_count
+     FROM orders o
+     LEFT JOIN customers c ON c.id = o.customer_id
+     LEFT JOIN suppliers s ON s.id = o.supplier_id
+     WHERE ${col} = ? AND o.status != 'cancelled'
+     ORDER BY o.created_at DESC`,
+    [contactId],
+  );
+}
+
 export type OrderDetail = OrderListRow;
 
 export async function getOrderById(id: number): Promise<OrderDetail | null> {

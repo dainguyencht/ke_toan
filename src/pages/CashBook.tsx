@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CashTransactionForm } from "@/components/cash/CashTransactionForm";
+import { EditCashDateDialog } from "@/components/cash/EditCashDateDialog";
 import {
   useCashSummary,
   useCashTransactions,
@@ -27,6 +28,7 @@ export default function CashBook() {
   const [typeFilter, setTypeFilter] = useState<"all" | "in" | "out">("all");
   const [openForm, setOpenForm] = useState(false);
   const [editTx, setEditTx] = useState<CashRow | null>(null);
+  const [dateEditTx, setDateEditTx] = useState<CashRow | null>(null);
 
   const filter = useMemo<CashFilter>(
     () => ({
@@ -187,19 +189,23 @@ export default function CashBook() {
                     {formatVND(t.amount)}
                   </TD>
                   <TD>
-                    {!t.ref_table && (
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => {
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => {
+                          if (t.ref_table) {
+                            setDateEditTx(t);
+                          } else {
                             setEditTx(t);
                             setOpenForm(true);
-                          }}
-                          title="Sửa"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
+                          }
+                        }}
+                        title={t.ref_table ? "Sửa ngày giờ" : "Sửa"}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      {!t.ref_table && (
                         <Button
                           size="icon"
                           variant="ghost"
@@ -210,8 +216,8 @@ export default function CashBook() {
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </TD>
                 </TR>
               ))}
@@ -227,6 +233,11 @@ export default function CashBook() {
           if (!v) setEditTx(null);
         }}
         editTransaction={editTx}
+      />
+      <EditCashDateDialog
+        open={dateEditTx != null}
+        onOpenChange={(v) => !v && setDateEditTx(null)}
+        transaction={dateEditTx}
       />
     </div>
   );
