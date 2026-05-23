@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createContact,
   deleteContact,
+  deleteDebtPayment,
   getContact,
   listContacts,
   payDebt,
@@ -49,6 +50,18 @@ export function useDeleteContact(kind: ContactKind) {
   return useMutation({
     mutationFn: (id: number) => deleteContact(kind, id),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY(kind) }),
+  });
+}
+
+export function useDeleteDebtPayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => deleteDebtPayment(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+      qc.invalidateQueries({ queryKey: ["cash"] });
+      qc.invalidateQueries({ queryKey: ["reports"] });
+    },
   });
 }
 

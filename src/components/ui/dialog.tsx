@@ -20,6 +20,7 @@ export const DialogContent = React.forwardRef<
       aria-describedby={ariaDescribedBy}
       className={cn(
         "fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2",
+        "max-h-[90vh] overflow-y-auto",
         "rounded-lg border border-neutral-200 bg-white p-6 shadow-lg",
         "data-[state=open]:animate-in data-[state=open]:fade-in data-[state=open]:zoom-in-95",
         className,

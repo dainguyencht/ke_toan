@@ -119,3 +119,31 @@ export async function payDebt(
     [amount, contactId],
   );
 }
+
+/**
+ * Xoá phiếu thu nợ / trả nợ — đảo ngược: cộng lại công nợ + xoá cash_transaction.
+ * Chỉ áp dụng cho giao dịch ref_table='customers'|'suppliers' (sinh từ payDebt).
+ */
+export async function deleteDebtPayment(id: number): Promise<void> {
+  const db = await getDb();
+  const rows = await db.select<
+    { amount: number; ref_table: string | null; ref_id: number | null }[]
+  >(
+    "SELECT amount, ref_table, ref_id FROM cash_transactions WHERE id = ?",
+    [id],
+  );
+  if (rows.length === 0) throw new Error("Không tìm thấy giao dịch");
+  const tx = rows[0];
+  if (tx.ref_table !== "customers" && tx.ref_table !== "suppliers") {
+    throw new Error(
+      "Chỉ áp dụng cho phiếu thu/trả nợ. Giao dịch từ đơn hàng phải sửa qua đơn.",
+    );
+  }
+  if (tx.ref_id == null) throw new Error("Giao dịch không hợp lệ (thiếu ref_id)");
+
+  await db.execute(
+    `UPDATE ${tx.ref_table} SET debt_amount = debt_amount + ? WHERE id = ?`,
+    [tx.amount, tx.ref_id],
+  );
+  await db.execute("DELETE FROM cash_transactions WHERE id = ?", [id]);
+}

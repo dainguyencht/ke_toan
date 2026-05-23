@@ -291,14 +291,14 @@ export function PurchaseForm({
             />
           </Field>
 
-          <div className="border border-neutral-200 rounded-md">
+          <div className="border border-neutral-200 rounded-md max-h-[50vh] overflow-y-auto">
             {lines.length === 0 ? (
               <div className="p-8 text-center text-neutral-400 text-sm">
                 Chưa có sản phẩm. Chọn từ danh sách trên.
               </div>
             ) : (
               <Table>
-                <THead>
+                <THead className="sticky top-0 z-10">
                   <TR>
                     <TH>Mã sản phẩm</TH>
                     <TH>Tên sản phẩm</TH>

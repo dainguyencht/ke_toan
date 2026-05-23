@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -9,10 +11,12 @@ import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { OrderDetail } from "@/components/orders/OrderDetail";
 import { useOrdersByContact } from "@/hooks/useOrders";
 import { useContactDebtPayments } from "@/hooks/useCash";
+import { useContact, useDeleteDebtPayment } from "@/hooks/useContacts";
 import { cn, formatDateTime, formatVND } from "@/lib/utils";
 import type { Contact, ContactKind } from "@/db/contacts";
 import type { OrderListRow } from "@/db/orders";
 import type { OrderStatus } from "@/domain/types";
+import { toast } from "sonner";
 
 const STATUS_LABEL: Record<OrderStatus, { text: string; tone: string }> = {
   draft: { text: "Nháp", tone: "text-neutral-500 bg-neutral-100" },
@@ -40,9 +44,12 @@ export function ContactOrdersDialog({
   const contactId = open && contact ? contact.id : null;
   const { data: orders = [], isLoading } = useOrdersByContact(kind, contactId);
   const { data: payments = [] } = useContactDebtPayments(kind, contactId);
+  const { data: freshContact } = useContact(kind, contactId);
+  const delDebt = useDeleteDebtPayment();
 
   if (!contact) return null;
 
+  const currentDebt = freshContact?.debt_amount ?? contact.debt_amount;
   const isCustomer = kind === "customer";
   const title = isCustomer
     ? `Phiếu bán của ${contact.name}`
@@ -50,6 +57,21 @@ export function ContactOrdersDialog({
   const verb = isCustomer ? "thu" : "trả";
   const paidLabel = isCustomer ? "Đã thu" : "Đã trả";
   const debtTableTitle = isCustomer ? "Phiếu thu nợ" : "Phiếu trả nợ";
+
+  const handleDeletePayment = async (paymentId: number, amount: number) => {
+    if (
+      !confirm(
+        `Xoá phiếu ${verb} nợ ${formatVND(amount)}?\nCông nợ sẽ được hoàn lại.`,
+      )
+    )
+      return;
+    try {
+      await delDebt.mutateAsync(paymentId);
+      toast.success("Đã xoá");
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
 
   const orderTotalSum = orders.reduce((s, o) => s + o.total, 0);
   const orderPaidSum = orders.reduce((s, o) => s + o.paid, 0);
@@ -149,6 +171,7 @@ export function ContactOrdersDialog({
                           <TH>Ngày</TH>
                           <TH>Ghi chú</TH>
                           <TH className="text-right">Số tiền</TH>
+                          <TH className="w-12"></TH>
                         </TR>
                       </THead>
                       <TBody>
@@ -163,6 +186,18 @@ export function ContactOrdersDialog({
                             <TD className="text-right tabular-nums">
                               {formatVND(p.amount)}
                             </TD>
+                            <TD>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() =>
+                                  handleDeletePayment(p.id, p.amount)
+                                }
+                                title="Xoá phiếu"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </TD>
                           </TR>
                         ))}
                         <TR className="font-medium bg-neutral-50">
@@ -172,6 +207,7 @@ export function ContactOrdersDialog({
                           <TD className="text-right tabular-nums">
                             {formatVND(debtPaidSum)}
                           </TD>
+                          <TD />
                         </TR>
                       </TBody>
                     </Table>
@@ -206,12 +242,10 @@ export function ContactOrdersDialog({
                   <span
                     className={cn(
                       "tabular-nums",
-                      contact.debt_amount > 0
-                        ? "text-amber-700"
-                        : "text-neutral-500",
+                      currentDebt > 0 ? "text-amber-700" : "text-neutral-500",
                     )}
                   >
-                    {formatVND(contact.debt_amount)}
+                    {formatVND(currentDebt)}
                   </span>
                 </div>
               </div>

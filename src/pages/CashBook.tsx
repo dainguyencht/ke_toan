@@ -10,6 +10,7 @@ import {
   useCashTransactions,
   useDeleteCashTransaction,
 } from "@/hooks/useCash";
+import { useDeleteDebtPayment } from "@/hooks/useContacts";
 import { cn, daysAgo, formatDateTime, formatVND } from "@/lib/utils";
 import type { CashFilter, CashRow } from "@/db/cash";
 import { toast } from "sonner";
@@ -42,11 +43,22 @@ export default function CashBook() {
   const { data: transactions, isLoading } = useCashTransactions(filter);
   const { data: allTime } = useCashSummary({});
   const del = useDeleteCashTransaction();
+  const delDebt = useDeleteDebtPayment();
 
-  const handleDelete = async (id: number, label: string) => {
-    if (!confirm(`Xóa giao dịch "${label}"?`)) return;
+  const handleDelete = async (t: CashRow) => {
+    const isDebtPayment =
+      t.ref_table === "customers" || t.ref_table === "suppliers";
+    const label = `${t.category} - ${formatVND(t.amount)}`;
+    const msg = isDebtPayment
+      ? `Xoá phiếu ${t.type === "in" ? "thu" : "trả"} nợ "${label}"?\nCông nợ sẽ được hoàn lại.`
+      : `Xóa giao dịch "${label}"?`;
+    if (!confirm(msg)) return;
     try {
-      await del.mutateAsync(id);
+      if (isDebtPayment) {
+        await delDebt.mutateAsync(t.id);
+      } else {
+        await del.mutateAsync(t.id);
+      }
       toast.success("Đã xóa");
     } catch (err) {
       toast.error((err as Error).message);
@@ -205,13 +217,13 @@ export default function CashBook() {
                       >
                         <Pencil className="w-4 h-4" />
                       </Button>
-                      {!t.ref_table && (
+                      {(t.ref_table == null ||
+                        t.ref_table === "customers" ||
+                        t.ref_table === "suppliers") && (
                         <Button
                           size="icon"
                           variant="ghost"
-                          onClick={() =>
-                            handleDelete(t.id, `${t.category} - ${formatVND(t.amount)}`)
-                          }
+                          onClick={() => handleDelete(t)}
                           title="Xóa"
                         >
                           <Trash2 className="w-4 h-4" />
