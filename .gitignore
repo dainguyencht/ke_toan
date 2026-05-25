@@ -29,3 +29,5 @@ docs/
 # Local reference files (not for repo)
 template.pdf
 template.xlsx
+hoadon_*.xlsx
+CongNoChiTiet*.xlsx

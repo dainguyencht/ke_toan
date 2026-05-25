@@ -48,6 +48,33 @@ fn save_bytes(path: String, bytes: Vec<u8>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn open_path_in_os(path: String) -> Result<(), String> {
+    use std::process::Command;
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Không mở được file: {e}"))?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(["/C", "start", "", &path])
+            .spawn()
+            .map_err(|e| format!("Không mở được file: {e}"))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Không mở được file: {e}"))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn list_auto_backups(app: AppHandle) -> Result<Vec<String>, String> {
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let backup_dir = data_dir.join(BACKUP_DIR);
@@ -133,6 +160,12 @@ pub fn run() {
             sql: include_str!("../migrations/003_units.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 4,
+            description: "order_snapshot_debt",
+            sql: include_str!("../migrations/004_order_snapshot_debt.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -159,6 +192,7 @@ pub fn run() {
             restore_db,
             list_auto_backups,
             save_bytes,
+            open_path_in_os,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Plus, ShoppingCart } from "lucide-react";
+import { Plus, ShoppingCart, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OrderDetail } from "@/components/orders/OrderDetail";
 import { PurchaseForm } from "@/components/orders/PurchaseForm";
 import { SaleForm } from "@/components/orders/SaleForm";
+import { ReturnForm, type ReturnKind } from "@/components/orders/ReturnForm";
 import { useOrders } from "@/hooks/useOrders";
 import { formatVND, formatDate } from "@/lib/utils";
 import type { OrderListRow } from "@/db/orders";
@@ -28,6 +29,7 @@ const TYPE_LABEL: Record<OrderType, string> = {
 export default function Orders() {
   const [openPurchase, setOpenPurchase] = useState(false);
   const [openSale, setOpenSale] = useState(false);
+  const [returnKind, setReturnKind] = useState<ReturnKind | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"all" | OrderType>("sale");
 
@@ -41,6 +43,22 @@ export default function Orders() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setReturnKind("to-supplier")}
+            title="Trả lại hàng cho nhà cung cấp"
+          >
+            <RotateCcw className="w-4 h-4" />
+            Trả NCC
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setReturnKind("from-customer")}
+            title="Khách hàng trả lại hàng"
+          >
+            <RotateCcw className="w-4 h-4" />
+            Trả từ KH
+          </Button>
           <Button variant="outline" onClick={() => setOpenPurchase(true)}>
             <Plus className="w-4 h-4" />
             Phiếu nhập
@@ -75,6 +93,13 @@ export default function Orders() {
 
       <PurchaseForm open={openPurchase} onOpenChange={setOpenPurchase} />
       <SaleForm open={openSale} onOpenChange={setOpenSale} />
+      {returnKind && (
+        <ReturnForm
+          open={returnKind != null}
+          onOpenChange={(v) => !v && setReturnKind(null)}
+          kind={returnKind}
+        />
+      )}
       <OrderDetail
         open={detailId != null}
         onOpenChange={(o) => !o && setDetailId(null)}

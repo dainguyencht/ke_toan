@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Trash2 } from "lucide-react";
+import { useState, useMemo } from "react";
+import { FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,21 +10,15 @@ import {
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { OrderDetail } from "@/components/orders/OrderDetail";
 import { useOrdersByContact } from "@/hooks/useOrders";
-import { useContactDebtPayments } from "@/hooks/useCash";
-import { useContact, useDeleteDebtPayment } from "@/hooks/useContacts";
+import { useContactCashFlow } from "@/hooks/useCash";
+import { useContact } from "@/hooks/useContacts";
+import { useSettings } from "@/hooks/useSettings";
+import { exportContactStatementToExcel } from "@/lib/excelExport";
 import { cn, formatDateTime, formatVND } from "@/lib/utils";
 import type { Contact, ContactKind } from "@/db/contacts";
 import type { OrderListRow } from "@/db/orders";
-import type { OrderStatus } from "@/domain/types";
+import type { CashTransaction, OrderType } from "@/domain/types";
 import { toast } from "sonner";
-
-const STATUS_LABEL: Record<OrderStatus, { text: string; tone: string }> = {
-  draft: { text: "Nháp", tone: "text-neutral-500 bg-neutral-100" },
-  confirmed: { text: "Đã chốt", tone: "text-blue-700 bg-blue-50" },
-  delivered: { text: "Đã giao", tone: "text-amber-700 bg-amber-50" },
-  paid: { text: "Đã thanh toán", tone: "text-green-700 bg-green-50" },
-  cancelled: { text: "Đã hủy", tone: "text-red-700 bg-red-50" },
-};
 
 type Props = {
   open: boolean;
@@ -32,6 +26,57 @@ type Props = {
   kind: ContactKind;
   contact: Contact | null;
 };
+
+type TimelineRow =
+  | { rowKind: "order"; data: OrderListRow }
+  | { rowKind: "cash"; data: CashTransaction };
+
+function rowCreatedAt(r: TimelineRow): string {
+  return r.rowKind === "order" ? r.data.created_at : r.data.created_at;
+}
+
+function valueOf(r: TimelineRow, kind: ContactKind): number {
+  if (r.rowKind === "order") {
+    // sale/purchase tăng nợ, return giảm nợ
+    return r.data.type === "return" ? -r.data.total : r.data.total;
+  }
+  // cash: chiều giảm nợ tùy loại đối tác
+  const reducesDebt =
+    (kind === "customer" && r.data.type === "in") ||
+    (kind === "supplier" && r.data.type === "out");
+  return reducesDebt ? -r.data.amount : r.data.amount;
+}
+
+const ORDER_TYPE_LABEL: Record<OrderType, string> = {
+  sale: "Bán hàng",
+  purchase: "Nhập hàng",
+  return: "Trả hàng",
+};
+
+/**
+ * Loại + tone cho từng dòng timeline.
+ * - Order: theo type
+ * - Cash: theo chiều dòng tiền so với contact:
+ *   + chiều giảm nợ (KH trả mình / mình trả NCC) = "Thanh toán"
+ *   + chiều tăng nợ (mình hoàn KH / NCC hoàn mình) = "Hoàn tiền"
+ */
+function rowTypeInfo(
+  row: TimelineRow,
+  kind: ContactKind,
+): { label: string; tone: string } {
+  if (row.rowKind === "order") {
+    if (row.data.type === "return") {
+      return { label: "Trả hàng", tone: "bg-amber-50 text-amber-700" };
+    }
+    return { label: ORDER_TYPE_LABEL[row.data.type], tone: "bg-blue-50 text-blue-700" };
+  }
+  const isPayment =
+    (kind === "customer" && row.data.type === "in") ||
+    (kind === "supplier" && row.data.type === "out");
+  return isPayment
+    ? { label: "Thanh toán", tone: "bg-green-50 text-green-700" }
+    : { label: "Hoàn tiền", tone: "bg-orange-50 text-orange-700" };
+}
 
 export function ContactOrdersDialog({
   open,
@@ -42,207 +87,243 @@ export function ContactOrdersDialog({
   const [detailId, setDetailId] = useState<number | null>(null);
 
   const contactId = open && contact ? contact.id : null;
-  const { data: orders = [], isLoading } = useOrdersByContact(kind, contactId);
-  const { data: payments = [] } = useContactDebtPayments(kind, contactId);
+  const { data: orders = [], isLoading: loadingOrders } = useOrdersByContact(
+    kind,
+    contactId,
+  );
+  const { data: cashFlow = [], isLoading: loadingCash } = useContactCashFlow(
+    kind,
+    contactId,
+  );
   const { data: freshContact } = useContact(kind, contactId);
-  const delDebt = useDeleteDebtPayment();
+  const { data: settings } = useSettings();
+  const [exporting, setExporting] = useState(false);
+
+  const orderByIdMap = useMemo(
+    () => new Map(orders.map((o) => [o.id, o])),
+    [orders],
+  );
+
+  // Sắp theo thời gian tăng dần, tính running balance, rồi đảo lại để hiển thị mới nhất trên cùng
+  const rowsWithBalance = useMemo(() => {
+    const all: TimelineRow[] = [
+      ...orders.map<TimelineRow>((o) => ({ rowKind: "order", data: o })),
+      ...cashFlow.map<TimelineRow>((c) => ({ rowKind: "cash", data: c })),
+    ];
+    all.sort((a, b) => (rowCreatedAt(a) < rowCreatedAt(b) ? -1 : 1));
+
+    let running = 0;
+    const withBal = all.map((r) => {
+      const value = valueOf(r, kind);
+      running += value;
+      return { row: r, value, balance: running };
+    });
+    return withBal.reverse();
+  }, [orders, cashFlow, kind]);
 
   if (!contact) return null;
 
-  const currentDebt = freshContact?.debt_amount ?? contact.debt_amount;
   const isCustomer = kind === "customer";
   const title = isCustomer
-    ? `Phiếu bán của ${contact.name}`
-    : `Phiếu nhập của ${contact.name}`;
-  const verb = isCustomer ? "thu" : "trả";
-  const paidLabel = isCustomer ? "Đã thu" : "Đã trả";
-  const debtTableTitle = isCustomer ? "Phiếu thu nợ" : "Phiếu trả nợ";
+    ? `Sổ giao dịch khách hàng — ${contact.name}`
+    : `Sổ giao dịch nhà cung cấp — ${contact.name}`;
 
-  const handleDeletePayment = async (paymentId: number, amount: number) => {
-    if (
-      !confirm(
-        `Xoá phiếu ${verb} nợ ${formatVND(amount)}?\nCông nợ sẽ được hoàn lại.`,
-      )
-    )
-      return;
+  const currentDebt = freshContact?.debt_amount ?? contact.debt_amount;
+  const totalBills = orders
+    .filter((o) => o.type !== "return")
+    .reduce((s, o) => s + o.total, 0);
+  const totalReturns = orders
+    .filter((o) => o.type === "return")
+    .reduce((s, o) => s + o.total, 0);
+  const totalPaid = cashFlow.reduce((s, t) => {
+    const reducesDebt =
+      (kind === "customer" && t.type === "in") ||
+      (kind === "supplier" && t.type === "out");
+    return s + (reducesDebt ? t.amount : -t.amount);
+  }, 0);
+
+  const isLoading = loadingOrders || loadingCash;
+
+  const handleExport = async () => {
+    if (!contact) return;
+    setExporting(true);
+    const toastId = toast.loading("Đang xuất Excel...");
     try {
-      await delDebt.mutateAsync(paymentId);
-      toast.success("Đã xoá");
-    } catch (err) {
-      toast.error((err as Error).message);
+      const res = await exportContactStatementToExcel({
+        kind,
+        contact: freshContact ?? contact,
+        orders,
+        cashFlow,
+        settings,
+      });
+      if (res.ok) {
+        toast.success(`Đã xuất: ${res.path}`, { id: toastId });
+      } else if (res.reason === "cancelled") {
+        toast.dismiss(toastId);
+      } else {
+        toast.error(`Lỗi xuất Excel: ${res.message}`, { id: toastId });
+      }
+    } finally {
+      setExporting(false);
     }
   };
-
-  const orderTotalSum = orders.reduce((s, o) => s + o.total, 0);
-  const orderPaidSum = orders.reduce((s, o) => s + o.paid, 0);
-  const debtPaidSum = payments.reduce((s, p) => s + p.amount, 0);
-  const totalPaid = orderPaidSum + debtPaidSum;
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[88vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
+            <div className="flex items-center justify-between gap-4">
+              <DialogTitle>{title}</DialogTitle>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleExport}
+                disabled={exporting || rowsWithBalance.length === 0}
+                className="mr-6"
+                title="Xuất công nợ chi tiết ra Excel"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                {exporting ? "Đang xuất..." : "Xuất Excel"}
+              </Button>
+            </div>
           </DialogHeader>
 
           {isLoading ? (
             <div className="p-6 text-neutral-500 text-sm">Đang tải...</div>
-          ) : orders.length === 0 && payments.length === 0 ? (
+          ) : rowsWithBalance.length === 0 ? (
             <div className="p-10 text-center text-neutral-500 text-sm">
-              Chưa có phiếu nào.
+              Chưa có giao dịch nào.
             </div>
           ) : (
             <div className="space-y-4">
-              {/* Phiếu mua/bán */}
-              {orders.length > 0 && (
-                <div className="border border-neutral-200 rounded-md">
-                  <Table>
-                    <THead>
-                      <TR>
-                        <TH>Mã phiếu</TH>
-                        <TH>Ngày</TH>
-                        <TH className="text-center">Số dòng</TH>
-                        <TH className="text-right">Tổng tiền</TH>
-                        <TH className="text-right">{paidLabel}</TH>
-                        <TH>Trạng thái</TH>
-                      </TR>
-                    </THead>
-                    <TBody>
-                      {orders.map((o: OrderListRow) => {
-                        const st = STATUS_LABEL[o.status];
-                        return (
-                          <TR
-                            key={o.id}
-                            onClick={() => setDetailId(o.id)}
-                            className="cursor-pointer"
-                          >
-                            <TD className="font-mono text-xs">{o.code}</TD>
-                            <TD className="text-neutral-600">
-                              {formatDateTime(o.created_at)}
-                            </TD>
-                            <TD className="text-center">{o.item_count}</TD>
-                            <TD className="text-right font-medium tabular-nums">
-                              {formatVND(o.total)}
-                            </TD>
-                            <TD className="text-right text-neutral-600 tabular-nums">
-                              {formatVND(o.paid)}
-                            </TD>
-                            <TD>
-                              <span
-                                className={cn(
-                                  "inline-flex px-2 py-0.5 rounded text-xs font-medium",
-                                  st.tone,
-                                )}
-                              >
-                                {st.text}
-                              </span>
-                            </TD>
-                          </TR>
-                        );
-                      })}
-                      <TR className="font-medium bg-neutral-50">
-                        <TD colSpan={3}>
-                          Tổng cộng ({orders.length} phiếu)
-                        </TD>
-                        <TD className="text-right tabular-nums">
-                          {formatVND(orderTotalSum)}
-                        </TD>
-                        <TD className="text-right tabular-nums">
-                          {formatVND(orderPaidSum)}
-                        </TD>
-                        <TD />
-                      </TR>
-                    </TBody>
-                  </Table>
-                </div>
-              )}
+              <div className="border border-neutral-200 rounded-md">
+                <Table>
+                  <THead className="sticky top-0 z-10">
+                    <TR>
+                      <TH>Mã phiếu</TH>
+                      <TH>Thời gian</TH>
+                      <TH>Loại</TH>
+                      <TH className="text-right">Giá trị</TH>
+                      <TH className="text-right">Dư nợ</TH>
+                    </TR>
+                  </THead>
+                  <TBody>
+                    {rowsWithBalance.map(({ row, value, balance }) => {
+                      const isOrder = row.rowKind === "order";
+                      const code = isOrder
+                        ? row.data.code
+                        : row.data.ref_table === "orders" && row.data.ref_id
+                          ? `→ ${orderByIdMap.get(row.data.ref_id)?.code ?? "—"}`
+                          : row.data.ref_table === "customers"
+                            ? "(Thu nợ)"
+                            : row.data.ref_table === "suppliers"
+                              ? "(Trả nợ)"
+                              : "—";
+                      const typeInfo = rowTypeInfo(row, kind);
+                      const key = isOrder
+                        ? `o-${row.data.id}`
+                        : `c-${row.data.id}`;
+                      const clickable = isOrder;
+                      const orderRow = isOrder ? row.data : null;
 
-              {/* Phiếu thu nợ / trả nợ */}
-              {payments.length > 0 && (
-                <div>
-                  <div className="text-sm font-medium text-neutral-700 mb-1.5">
-                    {debtTableTitle}
-                  </div>
-                  <div className="border border-neutral-200 rounded-md">
-                    <Table>
-                      <THead>
-                        <TR>
-                          <TH>Ngày</TH>
-                          <TH>Ghi chú</TH>
-                          <TH className="text-right">Số tiền</TH>
-                          <TH className="w-12"></TH>
-                        </TR>
-                      </THead>
-                      <TBody>
-                        {payments.map((p) => (
-                          <TR key={p.id}>
-                            <TD className="text-neutral-600 whitespace-nowrap">
-                              {formatDateTime(p.created_at)}
-                            </TD>
-                            <TD className="text-neutral-600">
-                              {p.note ?? p.category ?? "-"}
-                            </TD>
-                            <TD className="text-right tabular-nums">
-                              {formatVND(p.amount)}
-                            </TD>
-                            <TD>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={() =>
-                                  handleDeletePayment(p.id, p.amount)
-                                }
-                                title="Xoá phiếu"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </TD>
-                          </TR>
-                        ))}
-                        <TR className="font-medium bg-neutral-50">
-                          <TD colSpan={2}>
-                            Tổng cộng ({payments.length} phiếu)
+                      return (
+                        <TR
+                          key={key}
+                          onClick={
+                            clickable && orderRow
+                              ? () => setDetailId(orderRow.id)
+                              : undefined
+                          }
+                          className={clickable ? "cursor-pointer" : ""}
+                        >
+                          <TD
+                            className={cn(
+                              "font-mono text-xs",
+                              !isOrder && "text-neutral-500 italic",
+                            )}
+                          >
+                            {code}
                           </TD>
-                          <TD className="text-right tabular-nums">
-                            {formatVND(debtPaidSum)}
+                          <TD className="text-neutral-600 whitespace-nowrap">
+                            {formatDateTime(rowCreatedAt(row))}
                           </TD>
-                          <TD />
+                          <TD>
+                            <span
+                              className={cn(
+                                "inline-flex px-2 py-0.5 rounded text-xs font-medium",
+                                typeInfo.tone,
+                              )}
+                            >
+                              {typeInfo.label}
+                            </span>
+                          </TD>
+                          <TD
+                            className={cn(
+                              "text-right tabular-nums font-medium",
+                              value > 0
+                                ? "text-neutral-800"
+                                : value < 0
+                                  ? "text-green-700"
+                                  : "text-neutral-500",
+                            )}
+                          >
+                            {value > 0 ? "+" : value < 0 ? "−" : ""}
+                            {formatVND(Math.abs(value))}
+                          </TD>
+                          <TD
+                            className={cn(
+                              "text-right tabular-nums",
+                              balance > 0
+                                ? "text-amber-700 font-medium"
+                                : balance < 0
+                                  ? "text-green-700"
+                                  : "text-neutral-500",
+                            )}
+                          >
+                            {formatVND(balance)}
+                          </TD>
                         </TR>
-                      </TBody>
-                    </Table>
-                  </div>
-                </div>
-              )}
+                      );
+                    })}
+                  </TBody>
+                </Table>
+              </div>
 
               {/* Tổng kết */}
               <div className="border border-neutral-200 rounded-md bg-neutral-50 p-3 space-y-1.5 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-neutral-500">Tổng tiền hàng:</span>
-                  <span className="tabular-nums">{formatVND(orderTotalSum)}</span>
+                  <span className="text-neutral-500">
+                    Tổng tiền hàng ({isCustomer ? "đã bán" : "đã nhập"}):
+                  </span>
+                  <span className="tabular-nums">{formatVND(totalBills)}</span>
                 </div>
+                {totalReturns > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-neutral-500">Tổng trả hàng:</span>
+                    <span className="tabular-nums text-amber-700">
+                      −{formatVND(totalReturns)}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span className="text-neutral-500">
-                    Đã {verb} khi {isCustomer ? "bán" : "nhập"}:
+                    Tổng đã {isCustomer ? "thu" : "trả"}:
                   </span>
-                  <span className="tabular-nums">{formatVND(orderPaidSum)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-neutral-500">Đã {verb} nợ thêm:</span>
-                  <span className="tabular-nums">{formatVND(debtPaidSum)}</span>
-                </div>
-                <div className="flex justify-between font-medium border-t border-neutral-200 pt-1.5">
-                  <span>Tổng đã {verb}:</span>
                   <span className="tabular-nums text-green-700">
                     {formatVND(totalPaid)}
                   </span>
                 </div>
-                <div className="flex justify-between font-medium">
-                  <span>Công nợ hiện tại:</span>
+                <div className="flex justify-between font-medium border-t border-neutral-200 pt-1.5">
+                  <span>Dư nợ hiện tại:</span>
                   <span
                     className={cn(
                       "tabular-nums",
-                      currentDebt > 0 ? "text-amber-700" : "text-neutral-500",
+                      currentDebt > 0
+                        ? "text-amber-700"
+                        : currentDebt < 0
+                          ? "text-green-700"
+                          : "text-neutral-500",
                     )}
                   >
                     {formatVND(currentDebt)}

@@ -108,10 +108,15 @@ export default function Settings() {
     }
   };
 
+  // Path từ Rust dùng `/` trên macOS/Linux, `\` trên Windows — split cả 2
   const lastBackup = backups[0]
-    ? backups[0].split("/").pop()?.replace("ke_toan_", "").replace(".db", "")
+    ? backups[0].split(/[/\\]/).pop()?.replace("ke_toan_", "").replace(".db", "")
     : null;
-  const lastBackupDate = lastBackup ? new Date(Number(lastBackup) * 1000) : null;
+  const lastBackupTs = lastBackup ? Number(lastBackup) : NaN;
+  const lastBackupDate =
+    Number.isFinite(lastBackupTs) && lastBackupTs > 0
+      ? new Date(lastBackupTs * 1000)
+      : null;
 
   return (
     <div className="p-6 space-y-6 max-w-3xl">

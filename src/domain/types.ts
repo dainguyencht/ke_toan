@@ -80,6 +80,8 @@ export type Order = {
   status: OrderStatus;
   note: string | null;
   created_at: string;
+  /** Snapshot công nợ KH/NCC TRƯỚC khi tạo phiếu — dùng cho "Nợ cũ". */
+  snapshot_debt: number;
 };
 
 export type OrderItem = {

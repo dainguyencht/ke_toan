@@ -41,9 +41,9 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
 
   if (!order) return null;
 
-  const thisDebt = Math.max(0, order.total - order.paid);
+  // Snapshot debt từ lúc tạo phiếu — chính xác cho mọi case (overpay, trả trước...)
+  const oldDebt = order.snapshot_debt;
   const currentDebt = customer?.debt_amount ?? 0;
-  const oldDebt = Math.max(0, currentDebt - thisDebt);
 
   const shopName = settings?.shop_name || "CỬA HÀNG";
   const shopAddress = settings?.shop_address || "";

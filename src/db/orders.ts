@@ -91,7 +91,10 @@ export async function createPurchase(input: PurchaseInput): Promise<number> {
   const db = await getDb();
   const subtotal = input.items.reduce((s, l) => s + l.qty * l.price, 0);
   const total = subtotal; // chưa có discount cho phiếu nhập
-  const paid = Math.min(input.paid, total);
+  // Cho phép trả > total nếu có NCC (phần dư trừ vào nợ cũ NCC).
+  // Không có NCC thì cap tại total để tránh tiền treo.
+  const cashOut = input.supplier_id ? input.paid : Math.min(input.paid, total);
+  const paid = Math.min(cashOut, total); // order.paid không vượt total
   const createdAt = input.created_at ?? dbDateTime();
   const code = await generateOrderCode(
     "purchase",
@@ -99,11 +102,21 @@ export async function createPurchase(input: PurchaseInput): Promise<number> {
   );
   const status: OrderStatus = paid >= total ? "paid" : "delivered";
 
+  // Snapshot công nợ NCC trước khi tạo phiếu (cho "Nợ cũ" trên hoá đơn)
+  let snapshotDebt = 0;
+  if (input.supplier_id) {
+    const debtRows = await db.select<{ debt_amount: number }[]>(
+      "SELECT debt_amount FROM suppliers WHERE id = ?",
+      [input.supplier_id],
+    );
+    snapshotDebt = debtRows[0]?.debt_amount ?? 0;
+  }
+
   // 1. Tạo order
   const orderResult = await db.execute(
     `INSERT INTO orders
-       (code, type, supplier_id, subtotal, discount, total, paid, status, note, created_at)
-     VALUES (?, 'purchase', ?, ?, 0, ?, ?, ?, ?, ?)`,
+       (code, type, supplier_id, subtotal, discount, total, paid, status, note, created_at, snapshot_debt)
+     VALUES (?, 'purchase', ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
     [
       code,
       input.supplier_id,
@@ -113,6 +126,7 @@ export async function createPurchase(input: PurchaseInput): Promise<number> {
       status,
       input.note ?? null,
       createdAt,
+      snapshotDebt,
     ],
   );
   const orderId = Number(orderResult.lastInsertId);
@@ -160,20 +174,22 @@ export async function createPurchase(input: PurchaseInput): Promise<number> {
     );
   }
 
-  // 3. Sổ quỹ: ghi chi nếu có trả tiền
-  if (paid > 0) {
+  // 3. Sổ quỹ: ghi chi cho số tiền thực đã trả (có thể > total nếu trả dư trừ nợ cũ)
+  if (cashOut > 0) {
     await db.execute(
       `INSERT INTO cash_transactions (type, amount, category, ref_table, ref_id, note, created_at)
        VALUES ('out', ?, 'Trả NCC', 'orders', ?, ?, ?)`,
-      [paid, orderId, `Trả tiền phiếu ${code}`, createdAt],
+      [cashOut, orderId, `Trả tiền phiếu ${code}`, createdAt],
     );
   }
 
-  // 4. Cập nhật công nợ NCC (phần chưa trả)
-  if (input.supplier_id && paid < total) {
+  // 4. Cập nhật công nợ NCC: debt += (total - cashOut)
+  //    - cashOut < total: nợ tăng (mình còn nợ NCC)
+  //    - cashOut > total: nợ giảm (trừ nợ cũ; có thể âm = NCC còn nợ mình)
+  if (input.supplier_id && cashOut !== total) {
     await db.execute(
       `UPDATE suppliers SET debt_amount = debt_amount + ? WHERE id = ?`,
-      [total - paid, input.supplier_id],
+      [total - cashOut, input.supplier_id],
     );
   }
 
@@ -194,13 +210,26 @@ export async function createSale(input: SaleInput): Promise<number> {
   const db = await getDb();
   const subtotal = input.items.reduce((s, l) => s + l.qty * l.price, 0);
   const total = subtotal;
-  const paid = Math.min(input.paid, total);
+  // Cho phép thu > total nếu có KH (phần dư trừ vào nợ cũ KH).
+  // Không có KH thì cap tại total để tránh tiền treo.
+  const cashIn = input.customer_id ? input.paid : Math.min(input.paid, total);
+  const paid = Math.min(cashIn, total); // order.paid không vượt total
   const createdAt = input.created_at ?? dbDateTime();
   const code = await generateOrderCode(
     "sale",
     createdAt.slice(0, 10).replace(/-/g, ""),
   );
   const status: OrderStatus = paid >= total ? "paid" : "delivered";
+
+  // Snapshot công nợ KH trước khi tạo phiếu (cho "Nợ cũ" trên hoá đơn)
+  let snapshotDebt = 0;
+  if (input.customer_id) {
+    const debtRows = await db.select<{ debt_amount: number }[]>(
+      "SELECT debt_amount FROM customers WHERE id = ?",
+      [input.customer_id],
+    );
+    snapshotDebt = debtRows[0]?.debt_amount ?? 0;
+  }
 
   // Lấy giá vốn hiện tại cho từng variant (snapshot vào order_items để tính lãi sau này)
   const variantIds = input.items.map((l) => l.variant_id);
@@ -217,8 +246,8 @@ export async function createSale(input: SaleInput): Promise<number> {
   // 1. Tạo order
   const orderResult = await db.execute(
     `INSERT INTO orders
-       (code, type, customer_id, subtotal, discount, total, paid, status, note, created_at)
-     VALUES (?, 'sale', ?, ?, 0, ?, ?, ?, ?, ?)`,
+       (code, type, customer_id, subtotal, discount, total, paid, status, note, created_at, snapshot_debt)
+     VALUES (?, 'sale', ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
     [
       code,
       input.customer_id,
@@ -228,6 +257,7 @@ export async function createSale(input: SaleInput): Promise<number> {
       status,
       input.note ?? null,
       createdAt,
+      snapshotDebt,
     ],
   );
   const orderId = Number(orderResult.lastInsertId);
@@ -271,20 +301,193 @@ export async function createSale(input: SaleInput): Promise<number> {
     );
   }
 
-  // 3. Sổ quỹ: ghi thu nếu có nhận tiền
-  if (paid > 0) {
+  // 3. Sổ quỹ: ghi thu cho số tiền thực đã nhận (có thể > total nếu thu dư trừ nợ cũ)
+  if (cashIn > 0) {
     await db.execute(
       `INSERT INTO cash_transactions (type, amount, category, ref_table, ref_id, note, created_at)
        VALUES ('in', ?, 'Thu bán hàng', 'orders', ?, ?, ?)`,
-      [paid, orderId, `Thu tiền phiếu ${code}`, createdAt],
+      [cashIn, orderId, `Thu tiền phiếu ${code}`, createdAt],
     );
   }
 
-  // 4. Công nợ KH (phần chưa thu)
-  if (input.customer_id && paid < total) {
+  // 4. Công nợ KH: debt += (total - cashIn)
+  //    - cashIn < total: nợ tăng (KH còn nợ)
+  //    - cashIn > total: nợ giảm (trừ nợ cũ; có thể âm = KH dư tiền)
+  if (input.customer_id && cashIn !== total) {
     await db.execute(
       `UPDATE customers SET debt_amount = debt_amount + ? WHERE id = ?`,
-      [total - paid, input.customer_id],
+      [total - cashIn, input.customer_id],
+    );
+  }
+
+  return orderId;
+}
+
+export type ReturnLine = {
+  variant_id: number;
+  product_name: string;
+  qty: number;
+  price: number;
+  unit_name: string;
+  unit_factor: number;
+};
+
+export type ReturnInput = {
+  /** "customer": KH trả lại cho mình; "supplier": mình trả lại NCC */
+  kind: "customer" | "supplier";
+  contact_id: number;
+  /** Đơn gốc (tùy chọn) — nếu có sẽ ghi vào note để audit */
+  source_order_id?: number | null;
+  note?: string | null;
+  /** Số tiền đã hoàn (kind=customer) / đã nhận lại (kind=supplier) */
+  paid: number;
+  items: ReturnLine[];
+  created_at?: string;
+};
+
+/**
+ * Tạo phiếu trả hàng (type='return').
+ *
+ * kind='customer' (KH trả lại):
+ *   - Tồn kho TĂNG (+qty)
+ *   - Cash OUT (hoàn tiền KH) cho phần `paid`
+ *   - Nếu paid < total → KH nợ ngược (customers.debt_amount giảm — có thể âm)
+ *
+ * kind='supplier' (mình trả NCC):
+ *   - Tồn kho GIẢM (-qty)
+ *   - Cash IN (NCC hoàn tiền) cho phần `paid`
+ *   - Nếu paid < total → NCC nợ mình (suppliers.debt_amount giảm — có thể âm)
+ */
+export async function createReturn(input: ReturnInput): Promise<number> {
+  if (input.items.length === 0) {
+    throw new Error("Phiếu trả phải có ít nhất 1 dòng sản phẩm");
+  }
+  const db = await getDb();
+  const subtotal = input.items.reduce((s, l) => s + l.qty * l.price, 0);
+  const total = subtotal;
+  const paid = Math.min(input.paid, total);
+  const createdAt = input.created_at ?? dbDateTime();
+  const code = await generateOrderCode(
+    "return",
+    createdAt.slice(0, 10).replace(/-/g, ""),
+  );
+  const status: OrderStatus = paid >= total ? "paid" : "delivered";
+  const isFromCustomer = input.kind === "customer";
+
+  // Compose note với link đơn gốc nếu có
+  let finalNote = input.note?.trim() || null;
+  if (input.source_order_id) {
+    const src = await db.select<{ code: string }[]>(
+      "SELECT code FROM orders WHERE id = ?",
+      [input.source_order_id],
+    );
+    if (src.length) {
+      const linkText = `Liên kết: ${src[0].code}`;
+      finalNote = finalNote ? `${linkText}\n${finalNote}` : linkText;
+    }
+  }
+
+  // Snapshot công nợ TRƯỚC khi tạo phiếu trả
+  const snapshotTable = isFromCustomer ? "customers" : "suppliers";
+  const debtRows = await db.select<{ debt_amount: number }[]>(
+    `SELECT debt_amount FROM ${snapshotTable} WHERE id = ?`,
+    [input.contact_id],
+  );
+  const snapshotDebt = debtRows[0]?.debt_amount ?? 0;
+
+  // 1. Tạo order
+  const orderResult = await db.execute(
+    `INSERT INTO orders
+       (code, type, customer_id, supplier_id, subtotal, discount, total, paid, status, note, created_at, snapshot_debt)
+     VALUES (?, 'return', ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+    [
+      code,
+      isFromCustomer ? input.contact_id : null,
+      isFromCustomer ? null : input.contact_id,
+      subtotal,
+      total,
+      paid,
+      status,
+      finalNote,
+      createdAt,
+      snapshotDebt,
+    ],
+  );
+  const orderId = Number(orderResult.lastInsertId);
+
+  // 2. Items + stock movements (sign theo loại) + snapshot cost
+  const sign = isFromCustomer ? 1 : -1;
+  const variantIds = input.items.map((l) => l.variant_id);
+  const placeholders = variantIds.map(() => "?").join(",");
+  const variantCosts = await db.select<{ id: number; price_cost: number }[]>(
+    `SELECT v.id, COALESCE(v.price_cost, p.price_cost) AS price_cost
+     FROM product_variants v JOIN products p ON p.id = v.product_id
+     WHERE v.id IN (${placeholders})`,
+    variantIds,
+  );
+  const costMap = new Map(variantCosts.map((r) => [r.id, r.price_cost]));
+
+  for (const line of input.items) {
+    const lineTotal = line.qty * line.price;
+    const qtyBase = line.qty * line.unit_factor;
+    const baseCost = costMap.get(line.variant_id) ?? 0;
+    const cost = baseCost * line.unit_factor;
+
+    await db.execute(
+      `INSERT INTO order_items
+        (order_id, variant_id, qty, price, cost, discount, total, unit_name, unit_factor)
+       VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+      [
+        orderId,
+        line.variant_id,
+        line.qty,
+        line.price,
+        cost,
+        lineTotal,
+        line.unit_name,
+        line.unit_factor,
+      ],
+    );
+    await db.execute(
+      `INSERT INTO stock_movements (variant_id, qty_change, type, ref_table, ref_id, note, created_at)
+       VALUES (?, ?, 'return', 'orders', ?, ?, ?)`,
+      [
+        line.variant_id,
+        sign * qtyBase,
+        orderId,
+        isFromCustomer
+          ? `KH trả lại theo phiếu ${code} (${line.qty} ${line.unit_name})`
+          : `Trả NCC theo phiếu ${code} (${line.qty} ${line.unit_name})`,
+        createdAt,
+      ],
+    );
+    await db.execute(
+      `UPDATE product_variants SET stock_qty = stock_qty + ? WHERE id = ?`,
+      [sign * qtyBase, line.variant_id],
+    );
+  }
+
+  // 3. Cash transaction (chiều theo loại)
+  if (paid > 0) {
+    const cashType: "in" | "out" = isFromCustomer ? "out" : "in";
+    const category = isFromCustomer ? "Hoàn tiền KH" : "NCC hoàn tiền";
+    const noteText = isFromCustomer
+      ? `Hoàn tiền KH theo phiếu ${code}`
+      : `NCC hoàn tiền theo phiếu ${code}`;
+    await db.execute(
+      `INSERT INTO cash_transactions (type, amount, category, ref_table, ref_id, note, created_at)
+       VALUES (?, ?, ?, 'orders', ?, ?, ?)`,
+      [cashType, paid, category, orderId, noteText, createdAt],
+    );
+  }
+
+  // 4. Công nợ: phần chưa hoàn = mình nợ KH / NCC nợ mình → giảm debt_amount của bên kia
+  const remaining = total - paid;
+  if (remaining > 0) {
+    const table = isFromCustomer ? "customers" : "suppliers";
+    await db.execute(
+      `UPDATE ${table} SET debt_amount = debt_amount - ? WHERE id = ?`,
+      [remaining, input.contact_id],
     );
   }
 

@@ -4,7 +4,7 @@ import {
   deleteCashTransaction,
   getCashSummary,
   listCashTransactions,
-  listContactDebtPayments,
+  listContactCashFlow,
   updateCashTransaction,
   updateCashTransactionDate,
   type CashFilter,
@@ -27,15 +27,15 @@ export function useCashSummary(filter: CashFilter) {
   });
 }
 
-export function useContactDebtPayments(
+export function useContactCashFlow(
   kind: "customer" | "supplier",
   contactId: number | null,
 ) {
   return useQuery({
-    queryKey: [...KEY, "debt-payments", kind, contactId],
+    queryKey: [...KEY, "contact-flow", kind, contactId],
     queryFn: () =>
       contactId
-        ? listContactDebtPayments(kind, contactId)
+        ? listContactCashFlow(kind, contactId)
         : Promise.resolve([]),
     enabled: contactId != null,
   });

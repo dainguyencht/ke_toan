@@ -90,15 +90,7 @@ export function ContactList({ kind }: Props) {
                 </TH>
                 <TH>Địa chỉ</TH>
                 <TH className="text-right">
-                  {kind === "customer" ? (
-                    <Abbr title="Số tiền khách hàng còn nợ shop">
-                      Công nợ phải thu
-                    </Abbr>
-                  ) : (
-                    <Abbr title="Số tiền shop còn nợ nhà cung cấp">
-                      Công nợ phải trả
-                    </Abbr>
-                  )}
+                  <Abbr title="Dương = còn nợ; âm = trả trước">Dư nợ</Abbr>
                 </TH>
                 <TH className="w-20"></TH>
               </TR>
@@ -138,7 +130,9 @@ export function ContactList({ kind }: Props) {
                       className={
                         c.debt_amount > 0
                           ? "text-amber-600 font-medium"
-                          : "text-neutral-400"
+                          : c.debt_amount < 0
+                            ? "text-green-700 font-medium"
+                            : "text-neutral-400"
                       }
                     >
                       {formatVND(c.debt_amount)}
@@ -146,16 +140,25 @@ export function ContactList({ kind }: Props) {
                   </TD>
                   <TD onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
-                      {c.debt_amount > 0 && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setPayingDebt(c)}
-                          className="text-amber-700 border-amber-300 hover:bg-amber-50 hover:text-amber-800"
-                        >
-                          {kind === "customer" ? "Thu nợ" : "Trả nợ"}
-                        </Button>
-                      )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setPayingDebt(c)}
+                        className={
+                          c.debt_amount > 0
+                            ? "text-amber-700 border-amber-300 hover:bg-amber-50 hover:text-amber-800"
+                            : ""
+                        }
+                        title={
+                          c.debt_amount > 0
+                            ? kind === "customer"
+                              ? "Thu nợ KH"
+                              : "Trả nợ NCC"
+                            : "Ghi nhận thu/trả tiền (có thể trả trước)"
+                        }
+                      >
+                        {kind === "customer" ? "Thu tiền" : "Trả tiền"}
+                      </Button>
                       <Button
                         size="icon"
                         variant="ghost"

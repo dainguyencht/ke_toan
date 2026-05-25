@@ -199,6 +199,6 @@ body {
 }
 
 @media print {
-  @page { size: A4; margin: 0; }
+  @page { size: A3; margin: 0; }
   body { background: white !important; color: black !important; margin: 0; padding: 0; }
 }

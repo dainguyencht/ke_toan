@@ -23,8 +23,8 @@ type Props = {
 };
 
 const LABEL: Record<ContactKind, { title: string; verb: string; amountLabel: string }> = {
-  customer: { title: "Thu nợ khách hàng", verb: "thu", amountLabel: "Số tiền KH trả" },
-  supplier: { title: "Trả nợ nhà cung cấp", verb: "trả", amountLabel: "Số tiền mình trả NCC" },
+  customer: { title: "Thu tiền khách hàng", verb: "thu", amountLabel: "Số tiền KH trả" },
+  supplier: { title: "Trả tiền nhà cung cấp", verb: "trả", amountLabel: "Số tiền mình trả NCC" },
 };
 
 export function PayDebtDialog({ open, onOpenChange, kind, contact }: Props) {
@@ -36,7 +36,8 @@ export function PayDebtDialog({ open, onOpenChange, kind, contact }: Props) {
 
   useEffect(() => {
     if (open && contact) {
-      setAmount(String(contact.debt_amount));
+      // Mặc định gợi ý = nợ hiện tại (nếu > 0); KH đã dư thì để trống
+      setAmount(contact.debt_amount > 0 ? String(contact.debt_amount) : "");
       setNote("");
       setDatetime(toDateTimeLocalValue(new Date()));
     }
@@ -44,18 +45,14 @@ export function PayDebtDialog({ open, onOpenChange, kind, contact }: Props) {
 
   const amountNum = Number(amount) || 0;
   const debt = contact?.debt_amount ?? 0;
-  const remaining = Math.max(0, debt - amountNum);
-  const tooMuch = amountNum > debt;
+  // Dư nợ sau giao dịch (có thể âm = KH/NCC trả trước, dư tiền)
+  const newDebt = debt - amountNum;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!contact) return;
     if (amountNum <= 0) {
       toast.error("Số tiền phải > 0");
-      return;
-    }
-    if (tooMuch) {
-      toast.error("Số tiền lớn hơn công nợ");
       return;
     }
     if (!datetime) {
@@ -94,8 +91,18 @@ export function PayDebtDialog({ open, onOpenChange, kind, contact }: Props) {
               )}
             </div>
             <div className="text-sm">
-              <span className="text-neutral-500">Công nợ hiện tại: </span>
-              <strong className="text-amber-700">{formatVND(debt)}</strong>
+              <span className="text-neutral-500">Dư nợ hiện tại: </span>
+              <strong
+                className={
+                  debt > 0
+                    ? "text-amber-700"
+                    : debt < 0
+                      ? "text-green-700"
+                      : "text-neutral-500"
+                }
+              >
+                {formatVND(debt)}
+              </strong>
             </div>
           </div>
 
@@ -105,11 +112,15 @@ export function PayDebtDialog({ open, onOpenChange, kind, contact }: Props) {
                 value={amountNum}
                 onChange={(n) => setAmount(String(n))}
                 autoFocus
-                className={tooMuch ? "border-red-500 ring-1 ring-red-300" : ""}
               />
-              {tooMuch && (
-                <p className="text-xs text-red-600 mt-1">
-                  Số tiền lớn hơn công nợ ({formatVND(debt)})
+              {amountNum > debt && debt > 0 && (
+                <p className="text-xs text-neutral-500 mt-1">
+                  Trả vượt nợ {formatVND(amountNum - debt)} — ghi nhận trả trước.
+                </p>
+              )}
+              {amountNum > 0 && debt <= 0 && (
+                <p className="text-xs text-neutral-500 mt-1">
+                  Hiện không có công nợ — toàn bộ ghi nhận trả trước.
                 </p>
               )}
             </Field>
@@ -123,9 +134,17 @@ export function PayDebtDialog({ open, onOpenChange, kind, contact }: Props) {
           </div>
 
           <div className="text-sm text-neutral-600 flex justify-between border-t pt-2">
-            <span>Còn lại sau khi {labels.verb}:</span>
-            <strong className={remaining > 0 ? "text-amber-700" : "text-green-700"}>
-              {formatVND(remaining)}
+            <span>Dư nợ sau giao dịch:</span>
+            <strong
+              className={
+                newDebt > 0
+                  ? "text-amber-700"
+                  : newDebt < 0
+                    ? "text-green-700"
+                    : "text-neutral-500"
+              }
+            >
+              {formatVND(newDebt)}
             </strong>
           </div>
 
@@ -141,7 +160,7 @@ export function PayDebtDialog({ open, onOpenChange, kind, contact }: Props) {
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Hủy
             </Button>
-            <Button type="submit" disabled={pay.isPending || amountNum <= 0 || tooMuch}>
+            <Button type="submit" disabled={pay.isPending || amountNum <= 0}>
               {pay.isPending ? "Đang lưu..." : `Xác nhận ${labels.verb}`}
             </Button>
           </DialogFooter>

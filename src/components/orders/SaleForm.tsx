@@ -15,7 +15,11 @@ import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { ContactPicker } from "@/components/contacts/ContactPicker";
 import { ProductPicker } from "@/components/products/ProductPicker";
 import { useCancelOrder, useCreateSale } from "@/hooks/useOrders";
-import { loadOrderForEdit } from "@/db/orders";
+import { useContact } from "@/hooks/useContacts";
+import { getOrderById, getOrderItems, loadOrderForEdit } from "@/db/orders";
+import { getContact } from "@/db/contacts";
+import { useSettings } from "@/hooks/useSettings";
+import { printInvoice } from "@/lib/invoicePrint";
 import {
   cn,
   dateTimeLocalToDb,
@@ -63,7 +67,46 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
 
   const create = useCreateSale();
   const cancel = useCancelOrder();
+  const { data: settings } = useSettings();
+  const { data: customerData } = useContact("customer", customerId);
+  const oldDebt = customerData?.debt_amount ?? 0;
   const isEdit = editOrderId != null;
+
+  const printNewOrder = async (orderId: number) => {
+    try {
+      const order = await getOrderById(orderId);
+      if (!order) return;
+      const orderItems = await getOrderItems(orderId);
+      const customer = order.customer_id
+        ? await getContact("customer", order.customer_id)
+        : null;
+      const oldDebt = order.snapshot_debt;
+      const currentDebt = customer?.debt_amount ?? 0;
+      await printInvoice(
+        {
+          shopName: settings?.shop_name || "CỬA HÀNG",
+          shopAddress: settings?.shop_address || "",
+          shopPhone: settings?.shop_phone || "",
+          shopBank: settings?.shop_bank_account || "",
+          orderDate: order.created_at,
+          customerName: customer?.name ?? order.partner_name ?? "",
+          customerCompany: "",
+          customerPhone: customer?.phone ?? "",
+          customerAddress: customer?.address ?? "",
+          items: orderItems,
+          orderTotal: order.total,
+          orderPaid: order.paid,
+          oldDebt,
+          currentDebt,
+          invoiceNote: settings?.invoice_note || "",
+        },
+        `Hoá đơn ${order.code}`,
+      );
+    } catch (err) {
+      // không block — phiếu đã tạo thành công, in lỗi chỉ cảnh báo
+      toast.error(`Tạo phiếu OK nhưng lỗi in: ${(err as Error).message}`);
+    }
+  };
 
   const reset = () => {
     setCustomerId(null);
@@ -162,7 +205,9 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
 
   const subtotal = lines.reduce((s, l) => s + l.qty * l.price, 0);
   const paidNum = Number(paid) || 0;
-  const debt = Math.max(0, subtotal - paidNum);
+  // Tổng nợ sau giao dịch: oldDebt + (subtotal - paid).
+  // > 0: KH còn nợ; < 0: KH dư tiền (mình nợ KH).
+  const newDebt = oldDebt + subtotal - paidNum;
 
   // Tính oversold: convert qty về base unit để so với tồn
   const oversold = lines.filter((l) => {
@@ -185,8 +230,14 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
       const names = oversold.map((l) => l.product_name).join(", ");
       if (!confirm(`Tồn không đủ cho: ${names}. Vẫn tiếp tục bán âm tồn?`)) return;
     }
-    if (debt > 0 && !customerId) {
+    if (paidNum < subtotal && !customerId) {
       toast.error("Có công nợ nhưng chưa chọn khách. Hoặc chọn KH, hoặc thu đủ.");
+      return;
+    }
+    if (paidNum > subtotal && !customerId) {
+      toast.error(
+        "Thu nhiều hơn tổng đơn cần chọn KH (để trừ vào nợ cũ). Hoặc thu đúng = tổng.",
+      );
       return;
     }
 
@@ -213,7 +264,7 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
       if (!ok) return;
       try {
         await cancel.mutateAsync(editOrderId);
-        await create.mutateAsync({
+        const newId = await create.mutateAsync({
           customer_id: customerId,
           note: note.trim() || null,
           paid: paidNum,
@@ -223,6 +274,7 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
         toast.success(`Đã cập nhật. Phiếu cũ ${editingCode} đã hủy, phiếu mới đã tạo.`);
         handleClose(false);
         onSuccess?.();
+        void printNewOrder(newId);
       } catch (err) {
         toast.error(`Lỗi cập nhật: ${(err as Error).message}`);
       }
@@ -230,7 +282,7 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
     }
 
     try {
-      await create.mutateAsync({
+      const newId = await create.mutateAsync({
         customer_id: customerId,
         note: note.trim() || null,
         paid: paidNum,
@@ -240,6 +292,7 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
       toast.success("Đã tạo phiếu bán");
       handleClose(false);
       onSuccess?.();
+      void printNewOrder(newId);
     } catch (err) {
       toast.error(`Lỗi: ${(err as Error).message}`);
     }
@@ -369,21 +422,26 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
                         </TD>
                         <TD>
                           <NumberInput
-                            value={l.price}
-                            onChange={(n) => updateLine(idx, { price: n })}
+                            value={
+                              currentUnit && currentUnit.factor > 0
+                                ? Math.round(l.price / currentUnit.factor)
+                                : l.price
+                            }
+                            onChange={(n) =>
+                              updateLine(idx, {
+                                price: n * (currentUnit?.factor ?? 1),
+                              })
+                            }
                             className="text-right h-8"
                           />
-                          {currentUnit && (
-                            <div className="text-xs text-neutral-400 mt-0.5 text-right">
-                              / {currentUnit.name}
-                              {currentUnit.factor !== 1 && (
-                                <span className="ml-1">
-                                  (= {formatVND(l.price / currentUnit.factor)}/
-                                  {baseUnitName})
-                                </span>
-                              )}
-                            </div>
-                          )}
+                          <div className="text-xs text-neutral-400 mt-0.5 text-right">
+                            / {baseUnitName || currentUnit?.name}
+                            {currentUnit && currentUnit.factor !== 1 && (
+                              <span className="ml-1">
+                                (= {formatVND(l.price)}/{currentUnit.name})
+                              </span>
+                            )}
+                          </div>
                         </TD>
                         <TD className="text-right font-medium tabular-nums">
                           {formatVND(l.qty * l.price)}
@@ -429,6 +487,18 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
                 <span>Tổng tiền:</span>
                 <span>{formatVND(subtotal)}</span>
               </div>
+              {customerId && (
+                <div className="flex justify-between text-neutral-500">
+                  <span>Nợ cũ KH:</span>
+                  <span
+                    className={
+                      oldDebt > 0 ? "text-amber-600" : oldDebt < 0 ? "text-green-700" : ""
+                    }
+                  >
+                    {formatVND(oldDebt)}
+                  </span>
+                </div>
+              )}
               <div className="flex items-center justify-between gap-2">
                 <Label className="shrink-0">Đã thu:</Label>
                 <NumberInput
@@ -437,10 +507,26 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
                   className="text-right max-w-40 h-8"
                 />
               </div>
-              {debt > 0 && (
+              {customerId && (
+                <div className="flex justify-between font-medium border-t pt-1.5">
+                  <span>Tổng nợ sau giao dịch:</span>
+                  <span
+                    className={
+                      newDebt > 0
+                        ? "text-amber-700"
+                        : newDebt < 0
+                          ? "text-green-700"
+                          : "text-neutral-700"
+                    }
+                  >
+                    {formatVND(newDebt)}
+                  </span>
+                </div>
+              )}
+              {!customerId && paidNum < subtotal && (
                 <div className="flex justify-between text-amber-600 font-medium">
                   <span>Công nợ phải thu:</span>
-                  <span>{formatVND(debt)}</span>
+                  <span>{formatVND(subtotal - paidNum)}</span>
                 </div>
               )}
             </div>
@@ -450,6 +536,17 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
             <Button type="button" variant="outline" onClick={() => handleClose(false)}>
               Hủy
             </Button>
+            {customerId && oldDebt > 0 && (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setPaid(String(subtotal + oldDebt))}
+                disabled={subtotal === 0}
+                title="Thu đủ tiền hàng + nợ cũ"
+              >
+                Thu cả nợ cũ
+              </Button>
+            )}
             <Button
               type="button"
               variant="secondary"

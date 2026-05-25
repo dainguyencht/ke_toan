@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   cancelOrder,
   createPurchase,
+  createReturn,
   createSale,
   getOrderById,
   getOrderItems,
@@ -9,6 +10,7 @@ import {
   listOrdersByContact,
   payOrderDebt,
   type PurchaseInput,
+  type ReturnInput,
   type SaleInput,
 } from "@/db/orders";
 import type { OrderType } from "@/domain/types";
@@ -106,6 +108,20 @@ export function useCreateSale() {
       qc.invalidateQueries({ queryKey: KEY });
       qc.invalidateQueries({ queryKey: ["products"] });
       qc.invalidateQueries({ queryKey: ["contacts", "customer"] });
+    },
+  });
+}
+
+export function useCreateReturn() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ReturnInput) => createReturn(input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY });
+      qc.invalidateQueries({ queryKey: ["products"] });
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+      qc.invalidateQueries({ queryKey: ["cash"] });
+      qc.invalidateQueries({ queryKey: ["reports"] });
     },
   });
 }

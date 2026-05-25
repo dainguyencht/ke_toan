@@ -185,26 +185,26 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
                         </TD>
                         <TD className="text-right tabular-nums">
                           <div>
-                            {formatVND(it.price)}
+                            {formatVND(pricePerBase)}
                             <span className="text-neutral-500 ml-1">
-                              /{it.unit_name}
+                              /{it.base_unit}
                             </span>
                           </div>
                           {isConverted && (
                             <div className="text-xs text-neutral-400">
-                              = {formatVND(pricePerBase)}/{it.base_unit}
+                              = {formatVND(it.price)}/{it.unit_name}
                             </div>
                           )}
                         </TD>
                         {order.type === "sale" && (
                           <TD className="text-right tabular-nums text-neutral-500">
                             <div>
-                              {formatVND(it.cost)}
-                              <span className="ml-1">/{it.unit_name}</span>
+                              {formatVND(costPerBase)}
+                              <span className="ml-1">/{it.base_unit}</span>
                             </div>
                             {isConverted && (
                               <div className="text-xs text-neutral-400">
-                                = {formatVND(costPerBase)}/{it.base_unit}
+                                = {formatVND(it.cost)}/{it.unit_name}
                               </div>
                             )}
                           </TD>
@@ -242,7 +242,8 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
                     order.type === "sale" ? customer : order.type === "purchase" ? supplier : null;
                   if (!partner) return null;
                   const currentDebt = partner.debt_amount ?? 0;
-                  const oldDebt = Math.max(0, currentDebt - debt);
+                  // Snapshot lúc tạo phiếu — chính xác kể cả khi sau đó có overpay / trả trước
+                  const oldDebt = order.snapshot_debt;
                   const partnerLabel = order.type === "sale" ? "KH" : "NCC";
                   return (
                     <>

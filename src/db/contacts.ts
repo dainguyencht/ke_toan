@@ -90,12 +90,8 @@ export async function payDebt(
   );
   const c = rows[0];
   if (!c) throw new Error("Không tìm thấy đối tác");
-  if (c.debt_amount <= 0) throw new Error("Không có công nợ");
-  if (amount > c.debt_amount) {
-    throw new Error(
-      `Số tiền (${amount}) lớn hơn công nợ hiện tại (${c.debt_amount})`,
-    );
-  }
+
+  // Cho phép trả tiền vượt công nợ (KH/NCC trả trước → dư nợ âm)
 
   const cashType: "in" | "out" = kind === "customer" ? "in" : "out";
   const category = kind === "customer" ? "Thu công nợ KH" : "Trả công nợ NCC";
