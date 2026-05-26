@@ -49,9 +49,19 @@ type Props = {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   kind: ReturnKind;
+  /** Tùy chọn: prefill KH/NCC khi mở từ OrderDetail. */
+  initialContactId?: number | null;
+  /** Tùy chọn: prefill đơn gốc (auto-prefill items). */
+  initialSourceOrderId?: number | null;
 };
 
-export function ReturnForm({ open, onOpenChange, kind }: Props) {
+export function ReturnForm({
+  open,
+  onOpenChange,
+  kind,
+  initialContactId,
+  initialSourceOrderId,
+}: Props) {
   const isFromCustomer = kind === "from-customer";
   const contactKind = isFromCustomer ? "customer" : "supplier";
   const sourceType = isFromCustomer ? "sale" : "purchase";
@@ -101,11 +111,20 @@ export function ReturnForm({ open, onOpenChange, kind }: Props) {
     onOpenChange(v);
   };
 
-  // Khi đổi contact thì reset source order + lines
-  useEffect(() => {
+  // Đổi contact → reset source order + lines (gọi qua handler để không
+  // đụng auto-reset khi prefill từ props)
+  const changeContact = (id: number | null) => {
+    setContactId(id);
     setSourceOrderId(null);
     setLines([]);
-  }, [contactId]);
+  };
+
+  // Prefill từ props khi mở dialog (vd từ OrderDetail → "Trả hàng")
+  useEffect(() => {
+    if (!open) return;
+    if (initialContactId != null) setContactId(initialContactId);
+    if (initialSourceOrderId != null) setSourceOrderId(initialSourceOrderId);
+  }, [open, initialContactId, initialSourceOrderId]);
 
   // Khi chọn đơn gốc → prefill items
   useEffect(() => {
@@ -253,7 +272,7 @@ export function ReturnForm({ open, onOpenChange, kind }: Props) {
               <ContactPicker
                 kind={contactKind}
                 value={contactId}
-                onChange={setContactId}
+                onChange={changeContact}
               />
             </Field>
             <Field label="Ngày giờ phiếu">

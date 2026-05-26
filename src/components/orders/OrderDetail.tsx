@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FileText, Pencil, XCircle } from "lucide-react";
+import { FileText, Pencil, RotateCcw, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,6 +15,7 @@ import { useContact } from "@/hooks/useContacts";
 import { PayOrderDebtDialog } from "./PayOrderDebtDialog";
 import { PurchaseForm } from "./PurchaseForm";
 import { SaleForm } from "./SaleForm";
+import { ReturnForm } from "./ReturnForm";
 import { InvoicePreviewDialog } from "./InvoicePreviewDialog";
 import { cn, formatDateTime, formatNumber, formatVND } from "@/lib/utils";
 import type { OrderStatus, OrderType } from "@/domain/types";
@@ -55,6 +56,7 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
   const [payOpen, setPayOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [returnOpen, setReturnOpen] = useState(false);
 
   const handleCancel = async () => {
     if (!order) return;
@@ -80,6 +82,8 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
   const canCancel = order && !isCancelled && order.type !== "return";
   const canEdit = canCancel; // cùng điều kiện
   const canPrint = order && order.type === "sale"; // chỉ in cho đơn bán
+  const canReturn =
+    order && !isCancelled && (order.type === "sale" || order.type === "purchase");
   // TODO: tạm tắt — bật lại bằng cách restore điều kiện này:
   //   order && !isCancelled && order.type !== "return" && debt > 0
   const canPay = false;
@@ -306,6 +310,12 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
               Xem hoá đơn
             </Button>
           )}
+          {canReturn && (
+            <Button variant="secondary" onClick={() => setReturnOpen(true)}>
+              <RotateCcw className="w-4 h-4" />
+              Trả hàng
+            </Button>
+          )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Đóng
           </Button>
@@ -335,6 +345,22 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
           onOpenChange={setEditOpen}
           editOrderId={editOpen ? order.id : undefined}
           onSuccess={() => onOpenChange(false)}
+        />
+      )}
+
+      {/* Trả hàng — prefill từ đơn gốc */}
+      {order && canReturn && returnOpen && (
+        <ReturnForm
+          open={returnOpen}
+          onOpenChange={(v) => {
+            setReturnOpen(v);
+            if (!v) onOpenChange(false);
+          }}
+          kind={order.type === "sale" ? "from-customer" : "to-supplier"}
+          initialContactId={
+            order.type === "sale" ? order.customer_id : order.supplier_id
+          }
+          initialSourceOrderId={order.id}
         />
       )}
     </Dialog>
