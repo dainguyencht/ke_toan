@@ -52,7 +52,7 @@ body {
   padding-top: 4px;
 }
 .inv-shop {
-  font-size: 20px;
+  font-size: 1.33em;
   font-weight: bold;
   text-transform: uppercase;
 }
@@ -62,7 +62,7 @@ body {
 }
 .inv-shop-meta td {
   padding: 2px 0;
-  font-size: 14px;
+  font-size: 0.93em;
   vertical-align: top;
 }
 .inv-meta-label {
@@ -81,11 +81,11 @@ body {
   margin: 8px 0 12px;
 }
 .inv-title {
-  font-size: 22px;
+  font-size: 1.47em;
   font-weight: bold;
 }
 .inv-date {
-  font-size: 14px;
+  font-size: 0.93em;
   margin-top: 2px;
 }
 
@@ -97,7 +97,7 @@ body {
 }
 .inv-customer-table td {
   padding: 3px 4px;
-  font-size: 15px;
+  font-size: 1em;
   vertical-align: top;
 }
 .inv-cust-label {
@@ -120,7 +120,7 @@ body {
 .inv-table td {
   border: 1px solid #555;
   padding: 5px 6px;
-  font-size: 13px;
+  font-size: 0.87em;
   vertical-align: middle;
   word-wrap: break-word;
 }
@@ -157,7 +157,7 @@ body {
 /* Summary nợ */
 .inv-bottom-summary {
   margin-top: 10px;
-  font-size: 15px;
+  font-size: 1em;
   line-height: 1.8;
 }
 .inv-bottom-summary .sum-row {
@@ -188,11 +188,11 @@ body {
 }
 .inv-sig-title {
   font-weight: bold;
-  font-size: 15px;
+  font-size: 1em;
 }
 .inv-sig-sub {
   font-style: italic;
-  font-size: 14px;
+  font-size: 0.93em;
   margin-top: 2px;
   margin-bottom: 60px;
 }

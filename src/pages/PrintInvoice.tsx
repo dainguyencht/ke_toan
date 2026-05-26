@@ -22,6 +22,8 @@ export type InvoicePrintData = {
   oldDebt: number;
   currentDebt: number;
   invoiceNote: string;
+  /** Cỡ chữ base px (15 = vừa). Tùy chọn — mặc định dùng default trong CSS. */
+  fontSize?: number;
 };
 
 export default function PrintInvoice() {

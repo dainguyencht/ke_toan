@@ -26,6 +26,7 @@ export default function Settings() {
   const [shopPhone, setShopPhone] = useState("");
   const [shopBankAccount, setShopBankAccount] = useState("");
   const [invoiceNote, setInvoiceNote] = useState("");
+  const [invoiceFontSize, setInvoiceFontSize] = useState("15");
   const [lowStockThreshold, setLowStockThreshold] = useState("5");
 
   const [dbPath, setDbPath] = useState<string>("");
@@ -38,6 +39,7 @@ export default function Settings() {
       setShopPhone(settings.shop_phone ?? "");
       setShopBankAccount(settings.shop_bank_account ?? "");
       setInvoiceNote(settings.invoice_note ?? "");
+      setInvoiceFontSize(settings.invoice_font_size ?? "15");
       setLowStockThreshold(settings.low_stock_threshold ?? "5");
     }
   }, [settings]);
@@ -65,6 +67,7 @@ export default function Settings() {
         shop_phone: shopPhone.trim(),
         shop_bank_account: shopBankAccount.trim(),
         invoice_note: invoiceNote,
+        invoice_font_size: String(Number(invoiceFontSize) || 15),
         low_stock_threshold: String(Number(lowStockThreshold) || 5),
       });
       toast.success("Đã lưu cài đặt");
@@ -157,6 +160,21 @@ export default function Settings() {
               placeholder="VD: Hàng đổi trả trong 7 ngày, kèm hoá đơn..."
               className="flex w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
             />
+          </Field>
+          <Field label="Cỡ chữ hoá đơn mặc định (px)">
+            <select
+              value={invoiceFontSize}
+              onChange={(e) => setInvoiceFontSize(e.target.value)}
+              className="flex h-9 max-w-32 rounded-md border border-neutral-300 bg-white px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              {[10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24].map(
+                (v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ),
+              )}
+            </select>
           </Field>
           <Field label="Ngưỡng cảnh báo tồn thấp (SP có tồn ≤ giá trị này sẽ cảnh báo)">
             <Input

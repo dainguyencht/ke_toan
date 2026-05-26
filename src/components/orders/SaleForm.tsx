@@ -16,10 +16,7 @@ import { ContactPicker } from "@/components/contacts/ContactPicker";
 import { ProductPicker } from "@/components/products/ProductPicker";
 import { useCancelOrder, useCreateSale } from "@/hooks/useOrders";
 import { useContact } from "@/hooks/useContacts";
-import { getOrderById, getOrderItems, loadOrderForEdit } from "@/db/orders";
-import { getContact } from "@/db/contacts";
-import { useSettings } from "@/hooks/useSettings";
-import { printInvoice } from "@/lib/invoicePrint";
+import { loadOrderForEdit } from "@/db/orders";
 import {
   cn,
   dateTimeLocalToDb,
@@ -50,8 +47,8 @@ type Props = {
   onOpenChange: (v: boolean) => void;
   /** Khi truyền: load đơn cũ, edit, submit sẽ hủy + tạo mới. */
   editOrderId?: number;
-  /** Gọi khi tạo/cập nhật thành công. */
-  onSuccess?: () => void;
+  /** Gọi khi tạo/cập nhật thành công, kèm id của phiếu mới. */
+  onSuccess?: (orderId: number) => void;
 };
 
 export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) {
@@ -67,45 +64,9 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
 
   const create = useCreateSale();
   const cancel = useCancelOrder();
-  const { data: settings } = useSettings();
   const { data: customerData } = useContact("customer", customerId);
   const oldDebt = customerData?.debt_amount ?? 0;
   const isEdit = editOrderId != null;
-
-  const printNewOrder = async (orderId: number) => {
-    try {
-      const order = await getOrderById(orderId);
-      if (!order) return;
-      const orderItems = await getOrderItems(orderId);
-      const customer = order.customer_id
-        ? await getContact("customer", order.customer_id)
-        : null;
-      const oldDebt = order.snapshot_debt;
-      const currentDebt = customer?.debt_amount ?? 0;
-      await printInvoice(
-        {
-          shopName: settings?.shop_name || "CỬA HÀNG",
-          shopAddress: settings?.shop_address || "",
-          shopPhone: settings?.shop_phone || "",
-          shopBank: settings?.shop_bank_account || "",
-          orderDate: order.created_at,
-          customerName: customer?.name ?? order.partner_name ?? "",
-          customerPhone: customer?.phone ?? "",
-          customerAddress: customer?.address ?? "",
-          items: orderItems,
-          orderTotal: order.total,
-          orderPaid: order.paid,
-          oldDebt,
-          currentDebt,
-          invoiceNote: settings?.invoice_note || "",
-        },
-        `Hoá đơn ${order.code}`,
-      );
-    } catch (err) {
-      // không block — phiếu đã tạo thành công, in lỗi chỉ cảnh báo
-      toast.error(`Tạo phiếu OK nhưng lỗi in: ${(err as Error).message}`);
-    }
-  };
 
   const reset = () => {
     setCustomerId(null);
@@ -272,8 +233,7 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
         });
         toast.success(`Đã cập nhật. Phiếu cũ ${editingCode} đã hủy, phiếu mới đã tạo.`);
         handleClose(false);
-        onSuccess?.();
-        void printNewOrder(newId);
+        onSuccess?.(newId);
       } catch (err) {
         toast.error(`Lỗi cập nhật: ${(err as Error).message}`);
       }
@@ -290,8 +250,7 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
       });
       toast.success("Đã tạo phiếu bán");
       handleClose(false);
-      onSuccess?.();
-      void printNewOrder(newId);
+      onSuccess?.(newId);
     } catch (err) {
       toast.error(`Lỗi: ${(err as Error).message}`);
     }

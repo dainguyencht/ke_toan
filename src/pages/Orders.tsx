@@ -7,7 +7,8 @@ import { OrderDetail } from "@/components/orders/OrderDetail";
 import { PurchaseForm } from "@/components/orders/PurchaseForm";
 import { SaleForm } from "@/components/orders/SaleForm";
 import { ReturnForm, type ReturnKind } from "@/components/orders/ReturnForm";
-import { useOrders } from "@/hooks/useOrders";
+import { InvoicePreviewDialog } from "@/components/orders/InvoicePreviewDialog";
+import { useOrder, useOrders } from "@/hooks/useOrders";
 import { formatVND, formatDate } from "@/lib/utils";
 import type { OrderListRow } from "@/db/orders";
 import type { OrderStatus, OrderType } from "@/domain/types";
@@ -31,7 +32,10 @@ export default function Orders() {
   const [openSale, setOpenSale] = useState(false);
   const [returnKind, setReturnKind] = useState<ReturnKind | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
+  const [previewOrderId, setPreviewOrderId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"all" | OrderType>("sale");
+
+  const { data: previewOrder } = useOrder(previewOrderId);
 
   return (
     <div className="p-6 space-y-4">
@@ -92,7 +96,16 @@ export default function Orders() {
       </Tabs>
 
       <PurchaseForm open={openPurchase} onOpenChange={setOpenPurchase} />
-      <SaleForm open={openSale} onOpenChange={setOpenSale} />
+      <SaleForm
+        open={openSale}
+        onOpenChange={setOpenSale}
+        onSuccess={(id) => setPreviewOrderId(id)}
+      />
+      <InvoicePreviewDialog
+        order={previewOrder ?? null}
+        open={previewOrderId != null && previewOrder != null}
+        onOpenChange={(o) => !o && setPreviewOrderId(null)}
+      />
       {returnKind && (
         <ReturnForm
           open={returnKind != null}

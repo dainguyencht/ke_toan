@@ -18,6 +18,8 @@ type Props = {
   oldDebt: number;
   currentDebt: number;
   invoiceNote: string;
+  /** Cỡ chữ base (px). Children scale theo em. Mặc định 15. */
+  fontSize?: number;
 };
 
 export function InvoiceLayout({
@@ -35,11 +37,15 @@ export function InvoiceLayout({
   oldDebt,
   currentDebt,
   invoiceNote,
+  fontSize,
 }: Props) {
   const displayItems = items;
 
   return (
-    <div className="inv-wrap">
+    <div
+      className="inv-wrap"
+      style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
+    >
       {/* Header: shop name (nửa trái) + info (nửa phải, labels căn cột) */}
       <div className="inv-header">
         <div className="inv-shop-col">

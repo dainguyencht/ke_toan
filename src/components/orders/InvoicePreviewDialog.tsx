@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
@@ -28,9 +28,12 @@ type Props = {
   onOpenChange: (v: boolean) => void;
 };
 
+const FONT_SIZE_OPTIONS = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24];
+
 export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
   const previewRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState<"pdf" | "print" | null>(null);
+  const [fontSize, setFontSize] = useState<number>(15);
 
   const { data: items = [] } = useOrderItems(open && order ? order.id : null);
   const { data: customer } = useContact(
@@ -38,6 +41,12 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
     open && order?.customer_id ? order.customer_id : null,
   );
   const { data: settings } = useSettings();
+
+  // Lúc load lần đầu: lấy cỡ chữ mặc định từ Cài đặt
+  useEffect(() => {
+    const v = Number(settings?.invoice_font_size);
+    if (FONT_SIZE_OPTIONS.includes(v)) setFontSize(v);
+  }, [settings?.invoice_font_size]);
 
   if (!order) return null;
 
@@ -130,6 +139,7 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
           oldDebt,
           currentDebt,
           invoiceNote,
+          fontSize,
         },
         `Hoá đơn ${order.code}`,
       );
@@ -146,7 +156,23 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto p-4">
         <DialogHeader>
-          <DialogTitle>Xem hoá đơn {order.code}</DialogTitle>
+          <div className="flex items-center justify-between gap-4 mr-6">
+            <DialogTitle>Xem hoá đơn {order.code}</DialogTitle>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-neutral-500">Cỡ chữ (px):</span>
+              <select
+                value={fontSize}
+                onChange={(e) => setFontSize(Number(e.target.value))}
+                className="h-8 rounded-md border border-neutral-300 bg-white px-2 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                {FONT_SIZE_OPTIONS.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
         </DialogHeader>
 
         {/* Preview — trông giống tờ giấy in A4 */}
@@ -179,6 +205,7 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
               oldDebt={oldDebt}
               currentDebt={currentDebt}
               invoiceNote={invoiceNote}
+              fontSize={fontSize}
             />
           </div>
         </div>
