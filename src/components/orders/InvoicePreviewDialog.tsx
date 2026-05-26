@@ -157,7 +157,7 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
             className="bg-white mx-auto shadow"
             style={{
               width: "210mm",
-              minHeight: "297mm",
+              minHeight: "148mm",
               padding: "12mm",
               boxSizing: "border-box",
               fontFamily: '"Times New Roman", Times, serif',
