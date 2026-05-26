@@ -35,7 +35,7 @@ body {
 
 .inv-wrap {
   font-family: "Tahoma", "Calibri", "Segoe UI", Arial, sans-serif;
-  font-size: 13px;
+  font-size: 15px;
   color: black;
   background: white;
 }
@@ -52,7 +52,7 @@ body {
   padding-top: 4px;
 }
 .inv-shop {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: bold;
   text-transform: uppercase;
 }
@@ -62,7 +62,7 @@ body {
 }
 .inv-shop-meta td {
   padding: 2px 0;
-  font-size: 12px;
+  font-size: 14px;
   vertical-align: top;
 }
 .inv-meta-label {
@@ -81,11 +81,11 @@ body {
   margin: 8px 0 12px;
 }
 .inv-title {
-  font-size: 18px;
+  font-size: 22px;
   font-weight: bold;
 }
 .inv-date {
-  font-size: 12px;
+  font-size: 14px;
   margin-top: 2px;
 }
 
@@ -97,7 +97,7 @@ body {
 }
 .inv-customer-table td {
   padding: 3px 4px;
-  font-size: 13px;
+  font-size: 15px;
   vertical-align: top;
 }
 .inv-cust-label {
@@ -120,7 +120,7 @@ body {
 .inv-table td {
   border: 1px solid #555;
   padding: 5px 6px;
-  font-size: 12px;
+  font-size: 13px;
   vertical-align: middle;
   word-wrap: break-word;
 }
@@ -128,7 +128,6 @@ body {
   font-weight: bold;
   text-align: center;
   background: #fafafa;
-  white-space: nowrap;
 }
 .inv-table td.num {
   text-align: right;
@@ -158,7 +157,7 @@ body {
 /* Summary nợ */
 .inv-bottom-summary {
   margin-top: 10px;
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.8;
 }
 .inv-bottom-summary .sum-row {
@@ -189,16 +188,27 @@ body {
 }
 .inv-sig-title {
   font-weight: bold;
-  font-size: 13px;
+  font-size: 15px;
 }
 .inv-sig-sub {
   font-style: italic;
-  font-size: 12px;
+  font-size: 14px;
   margin-top: 2px;
   margin-bottom: 60px;
 }
 
+@page {
+  size: A5 landscape;
+  margin: 0;
+  /* Force suppress browser auto headers/footers (URL, date, title, page #) */
+  @top-left { content: ""; }
+  @top-center { content: ""; }
+  @top-right { content: ""; }
+  @bottom-left { content: ""; }
+  @bottom-center { content: ""; }
+  @bottom-right { content: ""; }
+}
+
 @media print {
-  @page { size: A5 landscape; margin: 0; }
   body { background: white !important; color: black !important; margin: 0; padding: 0; }
 }

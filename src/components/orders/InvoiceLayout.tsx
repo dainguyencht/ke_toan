@@ -8,7 +8,6 @@ type Props = {
   shopBank: string;
   orderDate: string;
   customerName: string;
-  customerCompany: string;
   customerPhone: string;
   customerAddress: string;
   items: Array<
@@ -28,7 +27,6 @@ export function InvoiceLayout({
   shopBank,
   orderDate,
   customerName,
-  customerCompany,
   customerPhone,
   customerAddress,
   items,
@@ -79,16 +77,12 @@ export function InvoiceLayout({
         <div className="inv-date">{formatDateTime(orderDate)}</div>
       </div>
 
-      {/* Customer info: 4 dòng */}
+      {/* Customer info: 3 dòng */}
       <table className="inv-customer-table">
         <tbody>
           <tr>
             <td className="inv-cust-label">Khách Hàng:</td>
             <td className="inv-cust-val">{customerName}</td>
-          </tr>
-          <tr>
-            <td className="inv-cust-label">Đơn Vị:</td>
-            <td className="inv-cust-val">{customerCompany}</td>
           </tr>
           <tr>
             <td className="inv-cust-label">SĐT:</td>

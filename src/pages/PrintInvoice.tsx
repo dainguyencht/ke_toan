@@ -12,7 +12,6 @@ export type InvoicePrintData = {
   shopBank: string;
   orderDate: string;
   customerName: string;
-  customerCompany: string;
   customerPhone: string;
   customerAddress: string;
   items: Array<
@@ -29,6 +28,8 @@ export default function PrintInvoice() {
   const [data, setData] = useState<InvoicePrintData | null>(null);
 
   useEffect(() => {
+    // Title rỗng → một số browser dùng title cho header in, đặt rỗng tránh hiện
+    document.title = " ";
     const raw = localStorage.getItem(PRINT_DATA_KEY);
     if (raw) {
       try {
@@ -69,7 +70,7 @@ export default function PrintInvoice() {
   return (
     <div
       style={{
-        padding: "12mm",
+        padding: "3mm 5mm",
         background: "white",
         minHeight: "100vh",
         boxSizing: "border-box",

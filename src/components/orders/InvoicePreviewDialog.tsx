@@ -122,7 +122,6 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
           shopBank,
           orderDate: order.created_at,
           customerName: customer?.name ?? order.partner_name ?? "",
-          customerCompany: "",
           customerPhone: customer?.phone ?? "",
           customerAddress: customer?.address ?? "",
           items,
@@ -158,7 +157,7 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
             style={{
               width: "210mm",
               minHeight: "148mm",
-              padding: "12mm",
+              padding: "3mm 5mm",
               boxSizing: "border-box",
               fontFamily: '"Times New Roman", Times, serif',
               fontSize: "13px",
@@ -172,7 +171,6 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
               shopBank={shopBank}
               orderDate={order.created_at}
               customerName={customer?.name ?? order.partner_name ?? ""}
-              customerCompany={""}
               customerPhone={customer?.phone ?? ""}
               customerAddress={customer?.address ?? ""}
               items={items}

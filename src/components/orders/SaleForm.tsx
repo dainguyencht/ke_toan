@@ -90,7 +90,6 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
           shopBank: settings?.shop_bank_account || "",
           orderDate: order.created_at,
           customerName: customer?.name ?? order.partner_name ?? "",
-          customerCompany: "",
           customerPhone: customer?.phone ?? "",
           customerAddress: customer?.address ?? "",
           items: orderItems,
