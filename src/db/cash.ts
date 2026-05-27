@@ -141,6 +141,96 @@ export async function updateCashTransactionDate(
 }
 
 /**
+ * Sửa số tiền + ngày giờ của giao dịch CÓ LIÊN KẾT (ref_table='orders' hoặc
+ * 'customers'/'suppliers'). Tự sync nợ contact và order.paid để dữ liệu không lệch.
+ *
+ * - ref_table='orders' (thu/trả tại đơn, hoàn tiền return):
+ *   + cash.amount = newAmount; order.paid = min(newAmount, order.total); order.status update
+ *   + Sale/Purchase (cash giảm nợ): contact.debt_amount -= delta
+ *   + Return (cash là refund, tăng obligation): contact.debt_amount += delta
+ *
+ * - ref_table='customers'/'suppliers' (payDebt - thu/trả nợ):
+ *   + cash.amount = newAmount; contact.debt_amount -= delta
+ */
+export async function updateLinkedCash(
+  id: number,
+  newAmount: number,
+  newCreatedAt: string,
+): Promise<void> {
+  if (newAmount <= 0) throw new Error("Số tiền phải > 0");
+  const db = await getDb();
+  const rows = await db.select<CashTransaction[]>(
+    "SELECT * FROM cash_transactions WHERE id = ?",
+    [id],
+  );
+  if (rows.length === 0) throw new Error("Không tìm thấy giao dịch");
+  const cash = rows[0];
+  const delta = newAmount - cash.amount;
+
+  // Update cash trước
+  await db.execute(
+    "UPDATE cash_transactions SET amount = ?, created_at = ? WHERE id = ?",
+    [newAmount, newCreatedAt, id],
+  );
+
+  if (delta === 0) return;
+
+  // Sync entity liên kết
+  if (cash.ref_table === "orders" && cash.ref_id != null) {
+    const orderRows = await db.select<
+      {
+        id: number;
+        type: "sale" | "purchase" | "return";
+        customer_id: number | null;
+        supplier_id: number | null;
+        total: number;
+        status: string;
+      }[]
+    >(
+      "SELECT id, type, customer_id, supplier_id, total, status FROM orders WHERE id = ?",
+      [cash.ref_id],
+    );
+    if (orderRows.length === 0) return;
+    const order = orderRows[0];
+
+    // Sale/purchase: cash IN/OUT giảm nợ → cash tăng → nợ giảm
+    // Return: cash là refund, tăng obligation → cash tăng → nợ tăng
+    const reducesDebt = order.type !== "return";
+    const debtChange = (reducesDebt ? -1 : 1) * delta;
+
+    const contactTable = order.customer_id != null ? "customers" : "suppliers";
+    const contactId = order.customer_id ?? order.supplier_id;
+    if (contactId != null) {
+      await db.execute(
+        `UPDATE ${contactTable} SET debt_amount = debt_amount + ? WHERE id = ?`,
+        [debtChange, contactId],
+      );
+    }
+
+    // Sync order.paid = min(newAmount, total); status update
+    const newPaid = Math.min(newAmount, order.total);
+    let newStatus = order.status;
+    if (newPaid >= order.total) newStatus = "paid";
+    else if (order.status === "paid") newStatus = "delivered";
+    await db.execute("UPDATE orders SET paid = ?, status = ? WHERE id = ?", [
+      newPaid,
+      newStatus,
+      order.id,
+    ]);
+  } else if (
+    (cash.ref_table === "customers" || cash.ref_table === "suppliers") &&
+    cash.ref_id != null
+  ) {
+    // payDebt: cash giảm nợ → cash tăng → nợ giảm thêm delta
+    await db.execute(
+      `UPDATE ${cash.ref_table} SET debt_amount = debt_amount + ? WHERE id = ?`,
+      [-delta, cash.ref_id],
+    );
+  }
+  // ref_table = null → không cần sync (manual cash)
+}
+
+/**
  * Sửa giao dịch ghi tay. Không cho sửa giao dịch tự sinh từ đơn hàng
  * (ref_table='orders') — phải sửa đơn hàng tương ứng.
  */

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -9,8 +10,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useUpdateCashTransactionDate } from "@/hooks/useCash";
-import { dateTimeLocalToDb, formatVND, toDateTimeLocalValue } from "@/lib/utils";
+import { useUpdateLinkedCash } from "@/hooks/useCash";
+import { dateTimeLocalToDb, toDateTimeLocalValue } from "@/lib/utils";
 import type { CashRow } from "@/db/cash";
 import { toast } from "sonner";
 
@@ -20,12 +21,18 @@ type Props = {
   transaction: CashRow | null;
 };
 
+/**
+ * Sửa giao dịch CÓ LIÊN KẾT (ref_table='orders' hoặc 'customers'/'suppliers').
+ * Cho phép đổi cả số tiền + ngày giờ. Tự sync nợ contact và order.paid.
+ */
 export function EditCashDateDialog({ open, onOpenChange, transaction }: Props) {
+  const [amount, setAmount] = useState<number>(0);
   const [datetime, setDatetime] = useState("");
-  const update = useUpdateCashTransactionDate();
+  const update = useUpdateLinkedCash();
 
   useEffect(() => {
     if (open && transaction) {
+      setAmount(transaction.amount);
       setDatetime(toDateTimeLocalValue(transaction.created_at));
     }
   }, [open, transaction]);
@@ -34,6 +41,10 @@ export function EditCashDateDialog({ open, onOpenChange, transaction }: Props) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (amount <= 0) {
+      toast.error("Số tiền phải > 0");
+      return;
+    }
     if (!datetime) {
       toast.error("Phải chọn ngày giờ");
       return;
@@ -41,9 +52,10 @@ export function EditCashDateDialog({ open, onOpenChange, transaction }: Props) {
     try {
       await update.mutateAsync({
         id: transaction.id,
+        amount,
         createdAt: dateTimeLocalToDb(datetime),
       });
-      toast.success("Đã cập nhật ngày giờ");
+      toast.success("Đã cập nhật giao dịch");
       onOpenChange(false);
     } catch (err) {
       toast.error(`Lỗi: ${(err as Error).message}`);
@@ -54,17 +66,13 @@ export function EditCashDateDialog({ open, onOpenChange, transaction }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Sửa ngày giờ giao dịch</DialogTitle>
+          <DialogTitle>Sửa giao dịch</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1 p-3 bg-neutral-50 rounded border border-neutral-200 text-sm">
             <div>
               <span className="text-neutral-500">Loại: </span>
               <strong>{transaction.type === "in" ? "Thu" : "Chi"}</strong>
-            </div>
-            <div>
-              <span className="text-neutral-500">Số tiền: </span>
-              <strong>{formatVND(transaction.amount)}</strong>
             </div>
             <div>
               <span className="text-neutral-500">Danh mục: </span>
@@ -80,19 +88,28 @@ export function EditCashDateDialog({ open, onOpenChange, transaction }: Props) {
             )}
           </div>
 
-          <div className="space-y-1.5">
-            <Label>Ngày giờ</Label>
-            <Input
-              type="datetime-local"
-              value={datetime}
-              onChange={(e) => setDatetime(e.target.value)}
-              autoFocus
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Số tiền</Label>
+              <NumberInput
+                value={amount}
+                onChange={(n) => setAmount(n)}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Ngày giờ</Label>
+              <Input
+                type="datetime-local"
+                value={datetime}
+                onChange={(e) => setDatetime(e.target.value)}
+              />
+            </div>
           </div>
 
           <p className="text-xs text-neutral-500">
-            Giao dịch tự sinh từ đơn hàng / thu-trả nợ — chỉ sửa được ngày giờ.
-            Số tiền và loại phải sửa ở đơn / phiếu gốc.
+            Khi sửa số tiền, hệ thống tự đồng bộ công nợ KH/NCC và{" "}
+            <code>order.paid</code> để khớp.
           </p>
 
           <DialogFooter>

@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { OrderDetail } from "@/components/orders/OrderDetail";
+import { EditCashDateDialog } from "@/components/cash/EditCashDateDialog";
 import { useOrdersByContact } from "@/hooks/useOrders";
 import { useContactCashFlow } from "@/hooks/useCash";
 import { useContact } from "@/hooks/useContacts";
@@ -16,6 +17,7 @@ import { useSettings } from "@/hooks/useSettings";
 import { exportContactStatementToExcel } from "@/lib/excelExport";
 import { cn, formatDateTime, formatVND } from "@/lib/utils";
 import type { Contact, ContactKind } from "@/db/contacts";
+import type { CashRow } from "@/db/cash";
 import type { OrderListRow } from "@/db/orders";
 import type { CashTransaction, OrderType } from "@/domain/types";
 import { toast } from "sonner";
@@ -85,6 +87,7 @@ export function ContactOrdersDialog({
   contact,
 }: Props) {
   const [detailId, setDetailId] = useState<number | null>(null);
+  const [editingCash, setEditingCash] = useState<CashRow | null>(null);
 
   const contactId = open && contact ? contact.id : null;
   const { data: orders = [], isLoading: loadingOrders } = useOrdersByContact(
@@ -224,18 +227,37 @@ export function ContactOrdersDialog({
                       const key = isOrder
                         ? `o-${row.data.id}`
                         : `c-${row.data.id}`;
-                      const clickable = isOrder;
                       const orderRow = isOrder ? row.data : null;
+
+                      const handleRowClick = () => {
+                        if (isOrder && orderRow) {
+                          setDetailId(orderRow.id);
+                        } else if (!isOrder) {
+                          // Build CashRow với source_label cho dialog
+                          const cash = row.data;
+                          let sourceLabel: string | null = null;
+                          if (cash.ref_table === "orders" && cash.ref_id) {
+                            sourceLabel =
+                              orderByIdMap.get(cash.ref_id)?.code ?? null;
+                          } else if (cash.ref_table === "customers") {
+                            sourceLabel = "Thu nợ KH";
+                          } else if (cash.ref_table === "suppliers") {
+                            sourceLabel = "Trả nợ NCC";
+                          }
+                          setEditingCash({ ...cash, source_label: sourceLabel });
+                        }
+                      };
 
                       return (
                         <TR
                           key={key}
-                          onClick={
-                            clickable && orderRow
-                              ? () => setDetailId(orderRow.id)
-                              : undefined
+                          onClick={handleRowClick}
+                          className="cursor-pointer"
+                          title={
+                            isOrder
+                              ? "Click xem chi tiết phiếu"
+                              : "Click sửa giao dịch (số tiền + ngày giờ)"
                           }
-                          className={clickable ? "cursor-pointer" : ""}
                         >
                           <TD
                             className={cn(
@@ -339,6 +361,12 @@ export function ContactOrdersDialog({
         open={detailId != null}
         onOpenChange={(o) => !o && setDetailId(null)}
         orderId={detailId}
+      />
+
+      <EditCashDateDialog
+        open={editingCash != null}
+        onOpenChange={(o) => !o && setEditingCash(null)}
+        transaction={editingCash}
       />
     </>
   );

@@ -24,6 +24,10 @@ export type InvoicePrintData = {
   invoiceNote: string;
   /** Cỡ chữ base px (15 = vừa). Tùy chọn — mặc định dùng default trong CSS. */
   fontSize?: number;
+  /** Khổ giấy in. Mặc định A5. */
+  paperSize?: "A3" | "A4" | "A5";
+  /** Chiều giấy. Mặc định landscape. */
+  orientation?: "landscape" | "portrait";
 };
 
 export default function PrintInvoice() {
@@ -42,6 +46,36 @@ export default function PrintInvoice() {
       localStorage.removeItem(PRINT_DATA_KEY);
     }
   }, []);
+
+  // Inject @page rule động theo paperSize + orientation user chọn
+  useEffect(() => {
+    if (!data) return;
+    const styleId = "dynamic-print-page-style";
+    let styleEl = document.getElementById(styleId) as HTMLStyleElement | null;
+    if (!styleEl) {
+      styleEl = document.createElement("style");
+      styleEl.id = styleId;
+      document.head.appendChild(styleEl);
+    }
+    const size = data.paperSize ?? "A5";
+    const orient = data.orientation ?? "landscape";
+    styleEl.textContent = `
+      @page {
+        size: ${size} ${orient};
+        margin: 0;
+        @top-left { content: ""; }
+        @top-center { content: ""; }
+        @top-right { content: ""; }
+        @bottom-left { content: ""; }
+        @bottom-center { content: ""; }
+        @bottom-right { content: ""; }
+      }
+    `;
+    return () => {
+      // optional cleanup khi unmount
+      styleEl?.remove();
+    };
+  }, [data]);
 
   useEffect(() => {
     if (!data) return;

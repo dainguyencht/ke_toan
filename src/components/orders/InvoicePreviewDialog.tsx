@@ -30,10 +30,21 @@ type Props = {
 
 const FONT_SIZE_OPTIONS = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24];
 
+type PaperSize = "A3" | "A4" | "A5";
+type Orientation = "landscape" | "portrait";
+
+const PAPER_DIM_MM: Record<PaperSize, { short: number; long: number }> = {
+  A3: { short: 297, long: 420 },
+  A4: { short: 210, long: 297 },
+  A5: { short: 148, long: 210 },
+};
+
 export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
   const previewRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState<"pdf" | "print" | null>(null);
   const [fontSize, setFontSize] = useState<number>(15);
+  const [paperSize, setPaperSize] = useState<PaperSize>("A5");
+  const [orientation, setOrientation] = useState<Orientation>("landscape");
 
   const { data: items = [] } = useOrderItems(open && order ? order.id : null);
   const { data: customer } = useContact(
@@ -140,6 +151,8 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
           currentDebt,
           invoiceNote,
           fontSize,
+          paperSize,
+          orientation,
         },
         `Hoá đơn ${order.code}`,
       );
@@ -156,33 +169,63 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto p-4">
         <DialogHeader>
-          <div className="flex items-center justify-between gap-4 mr-6">
+          <div className="flex items-center justify-between gap-4 mr-6 flex-wrap">
             <DialogTitle>Xem hoá đơn {order.code}</DialogTitle>
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-neutral-500">Cỡ chữ (px):</span>
-              <select
-                value={fontSize}
-                onChange={(e) => setFontSize(Number(e.target.value))}
-                className="h-8 rounded-md border border-neutral-300 bg-white px-2 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-              >
-                {FONT_SIZE_OPTIONS.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </select>
+            <div className="flex items-center gap-3 text-sm">
+              <label className="flex items-center gap-1">
+                <span className="text-neutral-500">Khổ:</span>
+                <select
+                  value={paperSize}
+                  onChange={(e) => setPaperSize(e.target.value as PaperSize)}
+                  className="h-8 rounded-md border border-neutral-300 bg-white px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                >
+                  <option value="A5">A5</option>
+                  <option value="A4">A4</option>
+                  <option value="A3">A3</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-1">
+                <span className="text-neutral-500">Chiều:</span>
+                <select
+                  value={orientation}
+                  onChange={(e) => setOrientation(e.target.value as Orientation)}
+                  className="h-8 rounded-md border border-neutral-300 bg-white px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                >
+                  <option value="landscape">Ngang</option>
+                  <option value="portrait">Dọc</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-1">
+                <span className="text-neutral-500">Cỡ chữ:</span>
+                <select
+                  value={fontSize}
+                  onChange={(e) => setFontSize(Number(e.target.value))}
+                  className="h-8 rounded-md border border-neutral-300 bg-white px-2 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                >
+                  {FONT_SIZE_OPTIONS.map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           </div>
         </DialogHeader>
 
-        {/* Preview — trông giống tờ giấy in A4 */}
-        <div className="bg-neutral-100 p-4 rounded-md">
+        {/* Preview — tỉ lệ giấy theo paperSize + orientation user chọn */}
+        {(() => {
+          const dim = PAPER_DIM_MM[paperSize];
+          const w = orientation === "landscape" ? dim.long : dim.short;
+          const h = orientation === "landscape" ? dim.short : dim.long;
+          return (
+        <div className="bg-neutral-100 p-4 rounded-md overflow-auto">
           <div
             ref={previewRef}
             className="bg-white mx-auto shadow"
             style={{
-              width: "210mm",
-              minHeight: "148mm",
+              width: `${w}mm`,
+              minHeight: `${h}mm`,
               padding: "8mm 10mm",
               boxSizing: "border-box",
               fontFamily: '"Times New Roman", Times, serif',
@@ -209,6 +252,8 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
             />
           </div>
         </div>
+          );
+        })()}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

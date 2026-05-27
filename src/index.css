@@ -198,18 +198,8 @@ body {
   margin-bottom: 60px;
 }
 
-@page {
-  size: A5 landscape;
-  margin: 0;
-  /* Force suppress browser auto headers/footers (URL, date, title, page #) */
-  @top-left { content: ""; }
-  @top-center { content: ""; }
-  @top-right { content: ""; }
-  @bottom-left { content: ""; }
-  @bottom-center { content: ""; }
-  @bottom-right { content: ""; }
-}
-
+/* @page rule được inject động trong PrintInvoice page (size + orientation
+   user chọn trong InvoicePreviewDialog). */
 @media print {
   body { background: white !important; color: black !important; margin: 0; padding: 0; }
 }

@@ -640,10 +640,47 @@ export async function cancelOrder(id: number): Promise<void> {
     [id],
   );
 
-  // 1. Đảo tồn kho (đổi qty về base unit qua unit_factor)
+  // Xác định chiều đảo:
+  // - sale: bán → đảo = +stock (cộng lại); cash 'in' → đảo 'out'; debt KH giảm
+  // - purchase: nhập → đảo = -stock; cash 'out' → đảo 'in'; debt NCC giảm
+  // - return từ KH: stock+ → đảo = -stock; cash 'out' (refund) → đảo 'in';
+  //   debt KH tăng lại (vì lúc trả: customer.debt_amount -= remaining)
+  // - return cho NCC: stock- → đảo = +stock; cash 'in' (refund) → đảo 'out';
+  //   debt NCC tăng lại
+  const isReturn = order.type === "return";
+  const isCustomerSide = order.customer_id != null;
+
+  let stockSign: 1 | -1;
+  let cashReverseType: "in" | "out";
+  let debtRevertSign: 1 | -1; // +1: contact.debt -= debtAmount (giảm); -1: += (tăng)
+
+  if (isReturn) {
+    if (isCustomerSide) {
+      // Customer return: cancel = stock -, cash đối ứng "in", debt KH tăng
+      stockSign = -1;
+      cashReverseType = "in";
+      debtRevertSign = -1;
+    } else {
+      // Supplier return: cancel = stock +, cash đối ứng "out", debt NCC tăng
+      stockSign = 1;
+      cashReverseType = "out";
+      debtRevertSign = -1;
+    }
+  } else if (order.type === "sale") {
+    stockSign = 1;
+    cashReverseType = "out";
+    debtRevertSign = 1;
+  } else {
+    // purchase
+    stockSign = -1;
+    cashReverseType = "in";
+    debtRevertSign = 1;
+  }
+
+  // 1. Đảo tồn kho
   for (const it of items) {
     const qtyBase = it.qty * (it.unit_factor || 1);
-    const reverseQty = order.type === "sale" ? qtyBase : -qtyBase;
+    const reverseQty = stockSign * qtyBase;
     await db.execute(
       `INSERT INTO stock_movements (variant_id, qty_change, type, ref_table, ref_id, note)
        VALUES (?, ?, 'adjust', 'orders', ?, ?)`,
@@ -655,29 +692,33 @@ export async function cancelOrder(id: number): Promise<void> {
     );
   }
 
-  // 2. Đảo sổ quỹ: nếu order tự tạo cash_transactions thì sinh bản đối ứng
+  // 2. Đảo sổ quỹ
   if (order.paid > 0) {
-    const reverseCashType = order.type === "sale" ? "out" : "in";
-    const category = order.type === "sale" ? "Hoàn tiền KH" : "NCC hoàn tiền";
+    const category = isReturn
+      ? isCustomerSide
+        ? "Thu lại hoàn KH"
+        : "Trả lại hoàn NCC"
+      : order.type === "sale"
+        ? "Hoàn tiền KH"
+        : "NCC hoàn tiền";
     await db.execute(
       `INSERT INTO cash_transactions (type, amount, category, ref_table, ref_id, note)
        VALUES (?, ?, ?, 'orders', ?, ?)`,
-      [reverseCashType, order.paid, category, id, `Hủy phiếu ${order.code}`],
+      [cashReverseType, order.paid, category, id, `Hủy phiếu ${order.code}`],
     );
   }
 
-  // 3. Đảo công nợ
+  // 3. Đảo công nợ contact (phần đã đẩy vào nợ lúc tạo phiếu)
   const debtAmount = order.total - order.paid;
   if (debtAmount > 0) {
-    if (order.type === "sale" && order.customer_id) {
+    const contactTable = isCustomerSide ? "customers" : "suppliers";
+    const contactId = order.customer_id ?? order.supplier_id;
+    if (contactId != null) {
+      const sign = debtRevertSign; // sale/purchase: -=; return: +=
+      const op = sign === 1 ? "-" : "+";
       await db.execute(
-        `UPDATE customers SET debt_amount = debt_amount - ? WHERE id = ?`,
-        [debtAmount, order.customer_id],
-      );
-    } else if (order.type === "purchase" && order.supplier_id) {
-      await db.execute(
-        `UPDATE suppliers SET debt_amount = debt_amount - ? WHERE id = ?`,
-        [debtAmount, order.supplier_id],
+        `UPDATE ${contactTable} SET debt_amount = debt_amount ${op} ? WHERE id = ?`,
+        [debtAmount, contactId],
       );
     }
   }

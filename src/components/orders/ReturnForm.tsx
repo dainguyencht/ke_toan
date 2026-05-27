@@ -14,7 +14,11 @@ import {
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { ContactPicker } from "@/components/contacts/ContactPicker";
 import { ProductPicker } from "@/components/products/ProductPicker";
-import { useCreateReturn, useOrdersByContact } from "@/hooks/useOrders";
+import {
+  useCancelOrder,
+  useCreateReturn,
+  useOrdersByContact,
+} from "@/hooks/useOrders";
 import { loadOrderForEdit } from "@/db/orders";
 import {
   cn,
@@ -53,6 +57,10 @@ type Props = {
   initialContactId?: number | null;
   /** Tùy chọn: prefill đơn gốc (auto-prefill items). */
   initialSourceOrderId?: number | null;
+  /** Khi truyền: load phiếu trả cũ, submit sẽ hủy + tạo mới. */
+  editOrderId?: number;
+  /** Gọi khi tạo/cập nhật thành công. */
+  onSuccess?: (orderId: number) => void;
 };
 
 export function ReturnForm({
@@ -61,21 +69,13 @@ export function ReturnForm({
   kind,
   initialContactId,
   initialSourceOrderId,
+  editOrderId,
+  onSuccess,
 }: Props) {
+  const isEdit = editOrderId != null;
   const isFromCustomer = kind === "from-customer";
   const contactKind = isFromCustomer ? "customer" : "supplier";
   const sourceType = isFromCustomer ? "sale" : "purchase";
-
-  const labels = {
-    title: isFromCustomer ? "Phiếu trả hàng từ KH" : "Phiếu trả hàng cho NCC",
-    contact: isFromCustomer ? "Khách hàng (KH)" : "Nhà cung cấp (NCC)",
-    sourceOrder: isFromCustomer
-      ? "Đơn bán gốc (tùy chọn)"
-      : "Phiếu nhập gốc (tùy chọn)",
-    paidLabel: isFromCustomer ? "Đã hoàn lại" : "Đã nhận lại",
-    debtLabel: isFromCustomer ? "Còn nợ KH:" : "NCC còn nợ mình:",
-    submit: isFromCustomer ? "Tạo phiếu trả từ KH" : "Tạo phiếu trả NCC",
-  };
 
   const [contactId, setContactId] = useState<number | null>(null);
   const [sourceOrderId, setSourceOrderId] = useState<number | null>(null);
@@ -86,8 +86,29 @@ export function ReturnForm({
     toDateTimeLocalValue(new Date()),
   );
   const [loadingSource, setLoadingSource] = useState(false);
+  const [editingCode, setEditingCode] = useState<string | null>(null);
+
+  const labels = {
+    title: isEdit
+      ? `Cập nhật phiếu trả ${editingCode ?? "..."}`
+      : isFromCustomer
+        ? "Phiếu trả hàng từ KH"
+        : "Phiếu trả hàng cho NCC",
+    contact: isFromCustomer ? "Khách hàng (KH)" : "Nhà cung cấp (NCC)",
+    sourceOrder: isFromCustomer
+      ? "Đơn bán gốc (tùy chọn)"
+      : "Phiếu nhập gốc (tùy chọn)",
+    paidLabel: isFromCustomer ? "Đã hoàn lại" : "Đã nhận lại",
+    debtLabel: isFromCustomer ? "Còn nợ KH:" : "NCC còn nợ mình:",
+    submit: isEdit
+      ? "Cập nhật (hủy cũ + tạo mới)"
+      : isFromCustomer
+        ? "Tạo phiếu trả từ KH"
+        : "Tạo phiếu trả NCC",
+  };
 
   const create = useCreateReturn();
+  const cancel = useCancelOrder();
   const { data: contactOrders = [] } = useOrdersByContact(
     contactKind,
     contactId,
@@ -104,6 +125,7 @@ export function ReturnForm({
     setPaid("0");
     setNote("");
     setOrderDate(toDateTimeLocalValue(new Date()));
+    setEditingCode(null);
   };
 
   const handleClose = (v: boolean) => {
@@ -125,6 +147,40 @@ export function ReturnForm({
     if (initialContactId != null) setContactId(initialContactId);
     if (initialSourceOrderId != null) setSourceOrderId(initialSourceOrderId);
   }, [open, initialContactId, initialSourceOrderId]);
+
+  // Edit mode: load chính phiếu trả đang sửa (items + paid + note + date + contact)
+  useEffect(() => {
+    if (!open || !editOrderId) return;
+    setLoadingSource(true);
+    loadOrderForEdit(editOrderId)
+      .then(({ order: edOrder, lines: editLines }) => {
+        setEditingCode(edOrder.code);
+        const cid = isFromCustomer ? edOrder.customer_id : edOrder.supplier_id;
+        if (cid != null) setContactId(cid);
+        setPaid(String(edOrder.paid));
+        setNote(edOrder.note ?? "");
+        setOrderDate(toDateTimeLocalValue(edOrder.created_at));
+        setLines(
+          editLines.map((l) => ({
+            variant_id: l.variant_id,
+            product_id: l.product_id,
+            product_name: l.product_name,
+            sku: l.sku,
+            base_price: isFromCustomer ? l.base_price_sell : l.base_price_cost,
+            units: l.units,
+            unit_id: l.unit_id,
+            qty: l.qty,
+            price: l.price,
+          })),
+        );
+      })
+      .catch((err) => {
+        toast.error(`Lỗi load phiếu: ${(err as Error).message}`);
+        handleClose(false);
+      })
+      .finally(() => setLoadingSource(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editOrderId]);
 
   // Khi chọn đơn gốc → prefill items
   useEffect(() => {
@@ -228,25 +284,58 @@ export function ReturnForm({
       if (!confirm(`SL trả vượt SL đơn gốc cho: ${names}. Vẫn tiếp tục?`)) return;
     }
 
+    const itemsPayload = lines.map((l) => {
+      const u = l.units.find((x) => x.id === l.unit_id)!;
+      return {
+        variant_id: l.variant_id,
+        product_name: l.product_name,
+        qty: l.qty,
+        price: l.price,
+        unit_name: u.name,
+        unit_factor: u.factor,
+      };
+    });
+
+    if (isEdit && editOrderId && editingCode) {
+      const ok = confirm(
+        `Cập nhật phiếu trả ${editingCode}\n\n` +
+          `• Phiếu cũ ${editingCode} sẽ bị HỦY (tồn/sổ quỹ/công nợ đảo ngược)\n` +
+          `• Một PHIẾU TRẢ MỚI sẽ được tạo với dữ liệu vừa sửa\n` +
+          `• Phiếu mới có MÃ MỚI khác phiếu cũ\n\n` +
+          `Tiếp tục?`,
+      );
+      if (!ok) return;
+      try {
+        await cancel.mutateAsync(editOrderId);
+        const newId = await create.mutateAsync({
+          kind: contactKind,
+          contact_id: contactId,
+          source_order_id: sourceOrderId,
+          note: note.trim() || null,
+          paid: paidNum,
+          created_at: dateTimeLocalToDb(orderDate),
+          items: itemsPayload,
+        });
+        toast.success(
+          `Đã cập nhật. Phiếu cũ ${editingCode} đã hủy, phiếu mới đã tạo.`,
+        );
+        handleClose(false);
+        onSuccess?.(newId);
+      } catch (err) {
+        toast.error(`Lỗi cập nhật: ${(err as Error).message}`);
+      }
+      return;
+    }
+
     try {
-      await create.mutateAsync({
+      const newId = await create.mutateAsync({
         kind: contactKind,
         contact_id: contactId,
         source_order_id: sourceOrderId,
         note: note.trim() || null,
         paid: paidNum,
         created_at: dateTimeLocalToDb(orderDate),
-        items: lines.map((l) => {
-          const u = l.units.find((x) => x.id === l.unit_id)!;
-          return {
-            variant_id: l.variant_id,
-            product_name: l.product_name,
-            qty: l.qty,
-            price: l.price,
-            unit_name: u.name,
-            unit_factor: u.factor,
-          };
-        }),
+        items: itemsPayload,
       });
       toast.success(
         isFromCustomer
@@ -254,6 +343,7 @@ export function ReturnForm({
           : "Đã tạo phiếu trả hàng cho NCC",
       );
       handleClose(false);
+      onSuccess?.(newId);
     } catch (err) {
       toast.error(`Lỗi: ${(err as Error).message}`);
     }

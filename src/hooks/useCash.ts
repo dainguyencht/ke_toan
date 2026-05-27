@@ -7,6 +7,7 @@ import {
   listContactCashFlow,
   updateCashTransaction,
   updateCashTransactionDate,
+  updateLinkedCash,
   type CashFilter,
   type CashInput,
 } from "@/db/cash";
@@ -64,6 +65,27 @@ export function useUpdateCashTransactionDate() {
     mutationFn: ({ id, createdAt }: { id: number; createdAt: string }) =>
       updateCashTransactionDate(id, createdAt),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}
+
+export function useUpdateLinkedCash() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      amount,
+      createdAt,
+    }: {
+      id: number;
+      amount: number;
+      createdAt: string;
+    }) => updateLinkedCash(id, amount, createdAt),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY });
+      qc.invalidateQueries({ queryKey: ["orders"] });
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+      qc.invalidateQueries({ queryKey: ["reports"] });
+    },
   });
 }
 

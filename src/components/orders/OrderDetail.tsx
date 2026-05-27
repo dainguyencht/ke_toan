@@ -79,8 +79,8 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
 
   const debt = order ? Math.max(0, order.total - order.paid) : 0;
   const isCancelled = order?.status === "cancelled";
-  const canCancel = order && !isCancelled && order.type !== "return";
-  const canEdit = canCancel; // cùng điều kiện
+  const canCancel = order && !isCancelled;
+  const canEdit = canCancel; // cùng điều kiện — bao gồm cả phiếu trả
   const canPrint = order && order.type === "sale"; // chỉ in cho đơn bán
   const canReturn =
     order && !isCancelled && (order.type === "sale" || order.type === "purchase");
@@ -343,6 +343,15 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
         <SaleForm
           open={editOpen}
           onOpenChange={setEditOpen}
+          editOrderId={editOpen ? order.id : undefined}
+          onSuccess={() => onOpenChange(false)}
+        />
+      )}
+      {order && order.type === "return" && (
+        <ReturnForm
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          kind={order.customer_id != null ? "from-customer" : "to-supplier"}
           editOrderId={editOpen ? order.id : undefined}
           onSuccess={() => onOpenChange(false)}
         />
