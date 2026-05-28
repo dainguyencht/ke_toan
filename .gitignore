@@ -31,3 +31,10 @@ template.pdf
 template.xlsx
 hoadon_*.xlsx
 CongNoChiTiet*.xlsx
+
+# Local screenshots / scratch
+*.jpg
+*.jpeg
+*.png
+!public/**
+!src/**

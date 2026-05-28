@@ -139,6 +139,13 @@ export async function updateProduct(
     ],
   );
 
+  // Sync sku của variants (hoá đơn / OrderDetail join lên product_variants.sku).
+  // MVP: 1 product có 1 variant, dùng cùng SKU. Cập nhật hết cho khớp.
+  await db.execute(
+    "UPDATE product_variants SET sku = ? WHERE product_id = ?",
+    [input.sku, id],
+  );
+
   // Sync base unit (đổi name/price theo product)
   await db.execute(
     `UPDATE product_units SET
