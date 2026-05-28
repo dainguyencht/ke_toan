@@ -166,6 +166,12 @@ pub fn run() {
             sql: include_str!("../migrations/004_order_snapshot_debt.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 5,
+            description: "sync_variant_sku",
+            sql: include_str!("../migrations/005_sync_variant_sku.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
