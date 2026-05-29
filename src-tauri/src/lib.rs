@@ -172,6 +172,18 @@ pub fn run() {
             sql: include_str!("../migrations/005_sync_variant_sku.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 6,
+            description: "recompute_contact_debt",
+            sql: include_str!("../migrations/006_recompute_contact_debt.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 7,
+            description: "backfill_order_paid",
+            sql: include_str!("../migrations/007_backfill_order_paid.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

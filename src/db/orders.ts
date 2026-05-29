@@ -51,6 +51,49 @@ export type SaleLine = {
 };
 
 /**
+ * Recompute contact.debt_amount = tổng giá trị visible timeline (orders không
+ * cancelled + cash linked). Gọi sau mọi mutation create/cancel để debt luôn
+ * khớp với timeline — chống data lệch do edge case (overpay cancel...).
+ */
+async function recomputeAndSetContactDebt(
+  kind: "customer" | "supplier",
+  contactId: number,
+): Promise<void> {
+  const db = await getDb();
+  const table = kind === "customer" ? "customers" : "suppliers";
+  const col = kind === "customer" ? "customer_id" : "supplier_id";
+
+  const orderRows = await db.select<{ type: OrderType; total: number }[]>(
+    `SELECT type, total FROM orders
+     WHERE ${col} = ? AND status != 'cancelled'`,
+    [contactId],
+  );
+  const cashRows = await db.select<{ type: "in" | "out"; amount: number }[]>(
+    `SELECT type, amount FROM cash_transactions
+     WHERE (ref_table = ? AND ref_id = ?)
+        OR (ref_table = 'orders' AND ref_id IN (
+              SELECT id FROM orders WHERE ${col} = ? AND status != 'cancelled'
+            ))`,
+    [table, contactId, contactId],
+  );
+
+  let debt = 0;
+  for (const o of orderRows) {
+    debt += o.type === "return" ? -o.total : o.total;
+  }
+  for (const c of cashRows) {
+    const reducesDebt =
+      (kind === "customer" && c.type === "in") ||
+      (kind === "supplier" && c.type === "out");
+    debt += reducesDebt ? -c.amount : c.amount;
+  }
+  await db.execute(`UPDATE ${table} SET debt_amount = ? WHERE id = ?`, [
+    debt,
+    contactId,
+  ]);
+}
+
+/**
  * Sinh code cho đơn: PN-YYYYMMDD-NNN (purchase), HD-... (sale), TR-... (return).
  * `dateStr` (YYYYMMDD) lấy theo ngày của phiếu — bỏ trống thì dùng hôm nay.
  */
@@ -193,6 +236,9 @@ export async function createPurchase(input: PurchaseInput): Promise<number> {
     );
   }
 
+  // 5. Recompute đảm bảo debt khớp tổng timeline
+  if (input.supplier_id) await recomputeAndSetContactDebt("supplier", input.supplier_id);
+
   return orderId;
 }
 
@@ -319,6 +365,9 @@ export async function createSale(input: SaleInput): Promise<number> {
       [total - cashIn, input.customer_id],
     );
   }
+
+  // 5. Recompute đảm bảo debt khớp tổng timeline
+  if (input.customer_id) await recomputeAndSetContactDebt("customer", input.customer_id);
 
   return orderId;
 }
@@ -491,6 +540,12 @@ export async function createReturn(input: ReturnInput): Promise<number> {
     );
   }
 
+  // 5. Recompute đảm bảo debt khớp tổng timeline
+  await recomputeAndSetContactDebt(
+    isFromCustomer ? "customer" : "supplier",
+    input.contact_id,
+  );
+
   return orderId;
 }
 
@@ -608,6 +663,23 @@ export async function listOrdersByContact(
 }
 
 export type OrderDetail = OrderListRow;
+
+/**
+ * Tổng tiền thực mà KH đã thanh toán cho 1 đơn bán (kể cả overpay).
+ * Khác với order.paid (bị cap = total) — đây sum cash IN từ cash_transactions
+ * ref_table='orders' ref_id=orderId. Dùng cho hoá đơn để hiển thị đúng số
+ * tiền KH thực sự đưa.
+ */
+export async function getActualPaidForOrder(orderId: number): Promise<number> {
+  const db = await getDb();
+  const rows = await db.select<{ amt: number }[]>(
+    `SELECT COALESCE(SUM(amount), 0) AS amt
+     FROM cash_transactions
+     WHERE ref_table = 'orders' AND ref_id = ? AND type = 'in'`,
+    [orderId],
+  );
+  return rows[0]?.amt ?? 0;
+}
 
 export async function getOrderById(id: number): Promise<OrderDetail | null> {
   const db = await getDb();
@@ -728,6 +800,15 @@ export async function cancelOrder(id: number): Promise<void> {
     `UPDATE orders SET status = 'cancelled' WHERE id = ?`,
     [id],
   );
+
+  // 5. Recompute debt — fix edge case overpay-cancel để debt khớp tổng timeline
+  const contactIdForRecompute = order.customer_id ?? order.supplier_id;
+  if (contactIdForRecompute != null) {
+    await recomputeAndSetContactDebt(
+      isCustomerSide ? "customer" : "supplier",
+      contactIdForRecompute,
+    );
+  }
 }
 
 /**

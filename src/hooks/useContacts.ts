@@ -6,6 +6,7 @@ import {
   getContact,
   listContacts,
   payDebt,
+  setContactDebt,
   updateContact,
   type ContactInput,
   type ContactKind,
@@ -50,6 +51,25 @@ export function useDeleteContact(kind: ContactKind) {
   return useMutation({
     mutationFn: (id: number) => deleteContact(kind, id),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY(kind) }),
+  });
+}
+
+export function useSyncContactDebt() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      kind,
+      contactId,
+      newDebt,
+    }: {
+      kind: ContactKind;
+      contactId: number;
+      newDebt: number;
+    }) => setContactDebt(kind, contactId, newDebt),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+      qc.invalidateQueries({ queryKey: ["reports"] });
+    },
   });
 }
 

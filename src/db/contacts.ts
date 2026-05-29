@@ -120,6 +120,23 @@ export async function payDebt(
  * Xoá phiếu thu nợ / trả nợ — đảo ngược: cộng lại công nợ + xoá cash_transaction.
  * Chỉ áp dụng cho giao dịch ref_table='customers'|'suppliers' (sinh từ payDebt).
  */
+/**
+ * Đặt thẳng debt_amount cho contact. Dùng để fix data lệch khi tổng timeline
+ * không khớp contact.debt_amount (do bug cũ hoặc edge case cancel/overpay).
+ */
+export async function setContactDebt(
+  kind: ContactKind,
+  contactId: number,
+  newDebt: number,
+): Promise<void> {
+  const db = await getDb();
+  const table = TABLE[kind];
+  await db.execute(`UPDATE ${table} SET debt_amount = ? WHERE id = ?`, [
+    newDebt,
+    contactId,
+  ]);
+}
+
 export async function deleteDebtPayment(id: number): Promise<void> {
   const db = await getDb();
   const rows = await db.select<

@@ -14,8 +14,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useQuery } from "@tanstack/react-query";
 import { useContact } from "@/hooks/useContacts";
 import { useOrderItems } from "@/hooks/useOrders";
+import { getActualPaidForOrder } from "@/db/orders";
 import { useSettings } from "@/hooks/useSettings";
 import { printInvoice } from "@/lib/invoicePrint";
 import { toISODate } from "@/lib/utils";
@@ -52,6 +54,12 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
     open && order?.customer_id ? order.customer_id : null,
   );
   const { data: settings } = useSettings();
+  // Đã thu THỰC TẾ (cash IN, có thể > total nếu overpay). order.paid bị cap.
+  const { data: actualPaid = 0 } = useQuery({
+    queryKey: ["order-actual-paid", order?.id],
+    queryFn: () => (order ? getActualPaidForOrder(order.id) : Promise.resolve(0)),
+    enabled: open && order != null,
+  });
 
   // Lúc load lần đầu: lấy cỡ chữ mặc định từ Cài đặt
   useEffect(() => {
@@ -146,7 +154,7 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
           customerAddress: customer?.address ?? "",
           items,
           orderTotal: order.total,
-          orderPaid: order.paid,
+          orderPaid: actualPaid || order.paid,
           oldDebt,
           currentDebt,
           invoiceNote,
@@ -244,7 +252,7 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
               customerAddress={customer?.address ?? ""}
               items={items}
               orderTotal={order.total}
-              orderPaid={order.paid}
+              orderPaid={actualPaid || order.paid}
               oldDebt={oldDebt}
               currentDebt={currentDebt}
               invoiceNote={invoiceNote}
