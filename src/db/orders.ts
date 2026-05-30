@@ -611,9 +611,16 @@ export async function payOrderDebt(
 }
 
 /** Danh sách orders với tên đối tác và số dòng */
+export type DateFilter = {
+  /** ISO date 'YYYY-MM-DD' — inclusive. Null = không filter. */
+  from?: string | null;
+  to?: string | null;
+};
+
 export async function listOrders(
   type: OrderType | "all" = "all",
-  limit = 200,
+  dateFilter: DateFilter = {},
+  limit = 500,
 ): Promise<OrderListRow[]> {
   const db = await getDb();
   const conds = ["o.status != 'cancelled'"];
@@ -621,6 +628,14 @@ export async function listOrders(
   if (type !== "all") {
     conds.push("o.type = ?");
     params.push(type);
+  }
+  if (dateFilter.from) {
+    conds.push("date(o.created_at) >= date(?)");
+    params.push(dateFilter.from);
+  }
+  if (dateFilter.to) {
+    conds.push("date(o.created_at) <= date(?)");
+    params.push(dateFilter.to);
   }
   params.push(limit);
   const sql = `
@@ -636,6 +651,71 @@ export async function listOrders(
     LIMIT ?
   `;
   return await db.select<OrderListRow[]>(sql, params);
+}
+
+/**
+ * Danh sách phiếu liên quan đến 1 sản phẩm (nhập + bán + trả), kèm SL + giá
+ * của SP đó trong mỗi phiếu. Một phiếu có nhiều dòng cùng product (hiếm với
+ * MVP nhưng đề phòng) → mỗi dòng order_item = 1 row.
+ */
+export type ProductOrderRow = {
+  order_id: number;
+  code: string;
+  type: OrderType;
+  status: OrderStatus;
+  created_at: string;
+  customer_id: number | null;
+  supplier_id: number | null;
+  partner_name: string | null;
+  qty: number;
+  price: number;
+  unit_name: string;
+  unit_factor: number;
+  total: number;
+  base_unit: string;
+};
+
+export async function listOrdersByProduct(
+  productId: number,
+  dateFilter: DateFilter = {},
+): Promise<ProductOrderRow[]> {
+  const db = await getDb();
+  const conds = ["v.product_id = ?", "o.status != 'cancelled'"];
+  const params: unknown[] = [productId];
+  if (dateFilter.from) {
+    conds.push("date(o.created_at) >= date(?)");
+    params.push(dateFilter.from);
+  }
+  if (dateFilter.to) {
+    conds.push("date(o.created_at) <= date(?)");
+    params.push(dateFilter.to);
+  }
+  return await db.select<ProductOrderRow[]>(
+    `SELECT
+       o.id           AS order_id,
+       o.code         AS code,
+       o.type         AS type,
+       o.status       AS status,
+       o.created_at   AS created_at,
+       o.customer_id  AS customer_id,
+       o.supplier_id  AS supplier_id,
+       COALESCE(c.name, s.name) AS partner_name,
+       oi.qty         AS qty,
+       oi.price       AS price,
+       oi.unit_name   AS unit_name,
+       oi.unit_factor AS unit_factor,
+       oi.total       AS total,
+       p.unit         AS base_unit
+     FROM order_items oi
+     JOIN orders o ON o.id = oi.order_id
+     JOIN product_variants v ON v.id = oi.variant_id
+     JOIN products p ON p.id = v.product_id
+     LEFT JOIN customers c ON c.id = o.customer_id
+     LEFT JOIN suppliers s ON s.id = o.supplier_id
+     WHERE ${conds.join(" AND ")}
+     ORDER BY o.created_at DESC, o.id DESC`,
+    params,
+  );
 }
 
 /**
@@ -866,8 +946,13 @@ export async function loadOrderForEdit(
         [it.variant_id],
       );
       const info = rows[0];
-      const units = await listUnitsOfProduct(info.product_id);
-      // Khớp unit theo name (snapshot). Fallback: base unit.
+      const rawUnits = await listUnitsOfProduct(info.product_id);
+      // Inject snapshot factor cho unit khớp tên — đảm bảo lúc cancel+recreate
+      // (edit flow) factor không lệch nếu user đã đổi product.factor sau khi
+      // tạo đơn. Snapshot unit_factor trong order_items là source of truth.
+      const units = rawUnits.map((u) =>
+        u.name === it.unit_name ? { ...u, factor: it.unit_factor || u.factor } : u,
+      );
       const matched =
         units.find((u) => u.name === it.unit_name) ??
         units.find((u) => u.is_base) ??

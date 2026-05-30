@@ -8,12 +8,14 @@ import {
   Save,
   RefreshCw,
   AlertCircle,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useSettings, useUpdateSettings } from "@/hooks/useSettings";
 import { formatDate, toISODate } from "@/lib/utils";
+import { hashPassword } from "@/lib/passwordHash";
 import { toast } from "sonner";
 
 export default function Settings() {
@@ -31,6 +33,77 @@ export default function Settings() {
 
   const [dbPath, setDbPath] = useState<string>("");
   const [backups, setBackups] = useState<string[]>([]);
+
+  // Mật khẩu xem Tổng quan / Báo cáo
+  const [currentPwd, setCurrentPwd] = useState("");
+  const [newPwd, setNewPwd] = useState("");
+  const [confirmPwd, setConfirmPwd] = useState("");
+  const [savingPwd, setSavingPwd] = useState(false);
+  const hasPassword = !!settings?.view_password_hash;
+
+  const verifyCurrentPwd = async (): Promise<boolean> => {
+    if (!hasPassword) return true;
+    if (!currentPwd) {
+      toast.error("Nhập mật khẩu hiện tại");
+      return false;
+    }
+    const hash = await hashPassword(currentPwd);
+    if (hash !== settings?.view_password_hash) {
+      toast.error("Mật khẩu hiện tại không đúng");
+      return false;
+    }
+    return true;
+  };
+
+  const handleSavePassword = async () => {
+    if (!newPwd) {
+      toast.error("Nhập mật khẩu mới");
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      toast.error("Hai mật khẩu không khớp");
+      return;
+    }
+    if (newPwd.length < 4) {
+      toast.error("Mật khẩu tối thiểu 4 ký tự");
+      return;
+    }
+    setSavingPwd(true);
+    try {
+      if (!(await verifyCurrentPwd())) return;
+      const hash = await hashPassword(newPwd);
+      await update.mutateAsync({ view_password_hash: hash });
+      setCurrentPwd("");
+      setNewPwd("");
+      setConfirmPwd("");
+      // Xoá unlock flag để buộc nhập lại với mật khẩu mới
+      sessionStorage.removeItem("__view_pwd_unlocked");
+      toast.success(hasPassword ? "Đã đổi mật khẩu" : "Đã đặt mật khẩu");
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setSavingPwd(false);
+    }
+  };
+
+  const handleRemovePassword = async () => {
+    if (!hasPassword) return;
+    if (!confirm("Xoá mật khẩu? Tổng quan và Báo cáo sẽ KHÔNG cần mật khẩu nữa.")) return;
+    setSavingPwd(true);
+    try {
+      if (!(await verifyCurrentPwd())) return;
+      await update.mutateAsync({ view_password_hash: "" });
+      setCurrentPwd("");
+      setNewPwd("");
+      setConfirmPwd("");
+      sessionStorage.removeItem("__view_pwd_unlocked");
+      toast.success("Đã xoá mật khẩu");
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setSavingPwd(false);
+    }
+  };
 
   useEffect(() => {
     if (settings) {
@@ -190,6 +263,78 @@ export default function Settings() {
               <Save className="w-4 h-4" />
               {update.isPending ? "Đang lưu..." : "Lưu thay đổi"}
             </Button>
+          </div>
+        </div>
+      </Section>
+
+      {/* Section: Bảo mật — mật khẩu xem Tổng quan / Báo cáo */}
+      <Section title="Bảo mật">
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm">
+            <Lock className="w-4 h-4 text-neutral-500" />
+            <span>
+              Trạng thái:{" "}
+              <strong
+                className={hasPassword ? "text-green-700" : "text-neutral-500"}
+              >
+                {hasPassword ? "Đã đặt mật khẩu" : "Chưa đặt mật khẩu"}
+              </strong>
+            </span>
+          </div>
+          <p className="text-xs text-neutral-500">
+            Khi đặt mật khẩu, hai trang <strong>Tổng quan</strong> và{" "}
+            <strong>Báo cáo</strong> sẽ yêu cầu nhập mật khẩu trước khi xem.
+            Trạng thái mở khoá hết khi đóng app.
+          </p>
+          {hasPassword && (
+            <Field label="Mật khẩu hiện tại">
+              <Input
+                type="password"
+                value={currentPwd}
+                onChange={(e) => setCurrentPwd(e.target.value)}
+                placeholder="Cần nhập để đổi / xoá"
+                autoComplete="current-password"
+              />
+            </Field>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={hasPassword ? "Mật khẩu mới" : "Mật khẩu"}>
+              <Input
+                type="password"
+                value={newPwd}
+                onChange={(e) => setNewPwd(e.target.value)}
+                placeholder="Tối thiểu 4 ký tự"
+                autoComplete="new-password"
+              />
+            </Field>
+            <Field label="Xác nhận mật khẩu">
+              <Input
+                type="password"
+                value={confirmPwd}
+                onChange={(e) => setConfirmPwd(e.target.value)}
+                autoComplete="new-password"
+              />
+            </Field>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={handleSavePassword} disabled={savingPwd}>
+              <Save className="w-4 h-4" />
+              {savingPwd
+                ? "Đang lưu..."
+                : hasPassword
+                  ? "Đổi mật khẩu"
+                  : "Đặt mật khẩu"}
+            </Button>
+            {hasPassword && (
+              <Button
+                variant="outline"
+                onClick={handleRemovePassword}
+                disabled={savingPwd}
+                className="text-red-700 border-red-300 hover:bg-red-50"
+              >
+                Xoá mật khẩu
+              </Button>
+            )}
           </div>
         </div>
       </Section>

@@ -6,6 +6,7 @@ import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Abbr } from "@/components/ui/abbr";
 import { ProductForm } from "@/components/products/ProductForm";
 import { ImportProductsDialog } from "@/components/products/ImportProductsDialog";
+import { ProductOrdersDialog } from "@/components/products/ProductOrdersDialog";
 import { useArchiveProduct, useProducts } from "@/hooks/useProducts";
 import { formatNumber, formatVND } from "@/lib/utils";
 import type { Product } from "@/domain/types";
@@ -16,6 +17,7 @@ export default function Products() {
   const [open, setOpen] = useState(false);
   const [openImport, setOpenImport] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
+  const [viewingOrders, setViewingOrders] = useState<Product | null>(null);
 
   const { data: products, isLoading, error } = useProducts(search);
   const archive = useArchiveProduct();
@@ -98,7 +100,12 @@ export default function Products() {
             </THead>
             <TBody>
               {products.map((p) => (
-                <TR key={p.id}>
+                <TR
+                  key={p.id}
+                  onClick={() => setViewingOrders(p)}
+                  className="cursor-pointer"
+                  title="Xem lịch sử phiếu nhập/bán của SP"
+                >
                   <TD className="font-mono text-xs">{p.sku}</TD>
                   <TD className="font-medium">{p.name}</TD>
                   <TD className="text-neutral-500 text-xs">{p.barcode ?? "-"}</TD>
@@ -119,7 +126,7 @@ export default function Products() {
                       {formatNumber(p.total_stock)} {p.unit}
                     </span>
                   </TD>
-                  <TD>
+                  <TD onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
                       <Button
                         size="icon"
@@ -148,6 +155,11 @@ export default function Products() {
 
       <ProductForm open={open} onOpenChange={setOpen} product={editing} />
       <ImportProductsDialog open={openImport} onOpenChange={setOpenImport} />
+      <ProductOrdersDialog
+        open={viewingOrders != null}
+        onOpenChange={(o) => !o && setViewingOrders(null)}
+        product={viewingOrders}
+      />
     </div>
   );
 }

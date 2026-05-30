@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Plus, ShoppingCart, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OrderDetail } from "@/components/orders/OrderDetail";
@@ -9,8 +10,8 @@ import { SaleForm } from "@/components/orders/SaleForm";
 import { ReturnForm, type ReturnKind } from "@/components/orders/ReturnForm";
 import { InvoicePreviewDialog } from "@/components/orders/InvoicePreviewDialog";
 import { useOrder, useOrders } from "@/hooks/useOrders";
-import { formatVND, formatDate } from "@/lib/utils";
-import type { OrderListRow } from "@/db/orders";
+import { cn, formatVND, formatDate, toISODate } from "@/lib/utils";
+import type { DateFilter, OrderListRow } from "@/db/orders";
 import type { OrderStatus, OrderType } from "@/domain/types";
 
 const STATUS_LABEL: Record<OrderStatus, { text: string; tone: string }> = {
@@ -27,6 +28,8 @@ const TYPE_LABEL: Record<OrderType, string> = {
   return: "Trả",
 };
 
+type DateMode = "today" | "range" | "all";
+
 export default function Orders() {
   const [openPurchase, setOpenPurchase] = useState(false);
   const [openSale, setOpenSale] = useState(false);
@@ -34,6 +37,17 @@ export default function Orders() {
   const [detailId, setDetailId] = useState<number | null>(null);
   const [previewOrderId, setPreviewOrderId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"all" | OrderType>("sale");
+
+  const [dateMode, setDateMode] = useState<DateMode>("all");
+  const today = toISODate(new Date());
+  const [fromDate, setFromDate] = useState<string>(today);
+  const [toDate, setToDate] = useState<string>(today);
+
+  const dateFilter: DateFilter = useMemo(() => {
+    if (dateMode === "all") return {};
+    if (dateMode === "today") return { from: today, to: today };
+    return { from: fromDate || null, to: toDate || null };
+  }, [dateMode, today, fromDate, toDate]);
 
   const { data: previewOrder } = useOrder(previewOrderId);
 
@@ -74,6 +88,45 @@ export default function Orders() {
         </div>
       </div>
 
+      {/* Bộ lọc thời gian */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="inline-flex rounded-md border border-neutral-300 bg-white p-0.5">
+          {(["all", "today", "range"] as DateMode[]).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setDateMode(m)}
+              className={cn(
+                "px-3 py-1 text-sm rounded",
+                dateMode === m
+                  ? "bg-brand-500 text-white"
+                  : "text-neutral-600 hover:bg-neutral-100",
+              )}
+            >
+              {m === "today" ? "Hôm nay" : m === "range" ? "Khoảng ngày" : "Tất cả"}
+            </button>
+          ))}
+        </div>
+        {dateMode === "range" && (
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-neutral-500">Từ:</span>
+            <Input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="h-8 w-40"
+            />
+            <span className="text-neutral-500">Đến:</span>
+            <Input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="h-8 w-40"
+            />
+          </div>
+        )}
+      </div>
+
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
         <TabsList>
           <TabsTrigger value="all">Tất cả</TabsTrigger>
@@ -82,16 +135,16 @@ export default function Orders() {
           <TabsTrigger value="return">Trả hàng</TabsTrigger>
         </TabsList>
         <TabsContent value="all">
-          <OrdersTable type="all" onRowClick={setDetailId} />
+          <OrdersTable type="all" dateFilter={dateFilter} onRowClick={setDetailId} />
         </TabsContent>
         <TabsContent value="purchase">
-          <OrdersTable type="purchase" onRowClick={setDetailId} />
+          <OrdersTable type="purchase" dateFilter={dateFilter} onRowClick={setDetailId} />
         </TabsContent>
         <TabsContent value="sale">
-          <OrdersTable type="sale" onRowClick={setDetailId} />
+          <OrdersTable type="sale" dateFilter={dateFilter} onRowClick={setDetailId} />
         </TabsContent>
         <TabsContent value="return">
-          <OrdersTable type="return" onRowClick={setDetailId} />
+          <OrdersTable type="return" dateFilter={dateFilter} onRowClick={setDetailId} />
         </TabsContent>
       </Tabs>
 
@@ -124,12 +177,14 @@ export default function Orders() {
 
 function OrdersTable({
   type,
+  dateFilter,
   onRowClick,
 }: {
   type: "all" | OrderType;
+  dateFilter: DateFilter;
   onRowClick: (id: number) => void;
 }) {
-  const { data, isLoading, error } = useOrders(type);
+  const { data, isLoading, error } = useOrders(type, dateFilter);
 
   if (error) return <div className="p-6 text-red-600">Lỗi: {(error as Error).message}</div>;
   if (isLoading) return <div className="p-6 text-neutral-500">Đang tải...</div>;

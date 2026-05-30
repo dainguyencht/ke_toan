@@ -8,7 +8,9 @@ import {
   getOrderItems,
   listOrders,
   listOrdersByContact,
+  listOrdersByProduct,
   payOrderDebt,
+  type DateFilter,
   type PurchaseInput,
   type ReturnInput,
   type SaleInput,
@@ -17,10 +19,13 @@ import type { OrderType } from "@/domain/types";
 
 const KEY = ["orders"] as const;
 
-export function useOrders(type: OrderType | "all" = "all") {
+export function useOrders(
+  type: OrderType | "all" = "all",
+  dateFilter: DateFilter = {},
+) {
   return useQuery({
-    queryKey: [...KEY, "list", type],
-    queryFn: () => listOrders(type),
+    queryKey: [...KEY, "list", type, dateFilter.from ?? null, dateFilter.to ?? null],
+    queryFn: () => listOrders(type, dateFilter),
   });
 }
 
@@ -29,6 +34,26 @@ export function useOrderItems(orderId: number | null) {
     queryKey: [...KEY, "items", orderId],
     queryFn: () => (orderId ? getOrderItems(orderId) : Promise.resolve([])),
     enabled: orderId != null,
+  });
+}
+
+export function useOrdersByProduct(
+  productId: number | null,
+  dateFilter: DateFilter = {},
+) {
+  return useQuery({
+    queryKey: [
+      ...KEY,
+      "by-product",
+      productId,
+      dateFilter.from ?? null,
+      dateFilter.to ?? null,
+    ],
+    queryFn: () =>
+      productId
+        ? listOrdersByProduct(productId, dateFilter)
+        : Promise.resolve([]),
+    enabled: productId != null,
   });
 }
 

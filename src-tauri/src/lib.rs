@@ -184,6 +184,12 @@ pub fn run() {
             sql: include_str!("../migrations/007_backfill_order_paid.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 8,
+            description: "recompute_stock_qty",
+            sql: include_str!("../migrations/008_recompute_stock_qty.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

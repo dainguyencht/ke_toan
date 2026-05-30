@@ -1,5 +1,6 @@
 import { Routes, Route, useLocation } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
+import { PasswordGate } from "@/components/PasswordGate";
 import Dashboard from "@/pages/Dashboard";
 import Products from "@/pages/Products";
 import Orders from "@/pages/Orders";
@@ -24,12 +25,26 @@ export default function App() {
       <Sidebar />
       <main className="flex-1 overflow-auto">
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route
+            path="/"
+            element={
+              <PasswordGate>
+                <Dashboard />
+              </PasswordGate>
+            }
+          />
           <Route path="/products" element={<Products />} />
           <Route path="/orders" element={<Orders />} />
           <Route path="/customers" element={<Customers />} />
           <Route path="/cashbook" element={<CashBook />} />
-          <Route path="/reports" element={<Reports />} />
+          <Route
+            path="/reports"
+            element={
+              <PasswordGate>
+                <Reports />
+              </PasswordGate>
+            }
+          />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
