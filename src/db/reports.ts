@@ -204,17 +204,24 @@ export type ProfitTotal = {
   profit: number;
 };
 
-/** Lãi gộp tích lũy (từ trước đến giờ) */
+/** Lãi gộp tích lũy (từ trước đến giờ) — trừ hàng KH trả lại để khớp với P&L. */
 export async function getProfitTotal(): Promise<ProfitTotal> {
   const db = await getDb();
   const rows = await db.select<ProfitTotal[]>(
     `SELECT
-       COALESCE(SUM(i.total), 0)            AS revenue,
-       COALESCE(SUM(i.qty * i.cost), 0)     AS cost,
-       COALESCE(SUM(i.total) - SUM(i.qty * i.cost), 0) AS profit
+       COALESCE(SUM(CASE WHEN o.type='sale' THEN  i.total
+                         WHEN o.type='return' THEN -i.total
+                         ELSE 0 END), 0) AS revenue,
+       COALESCE(SUM(CASE WHEN o.type='sale' THEN  i.qty * i.cost
+                         WHEN o.type='return' THEN -i.qty * i.cost
+                         ELSE 0 END), 0) AS cost,
+       COALESCE(SUM(CASE WHEN o.type='sale' THEN  i.total - i.qty * i.cost
+                         WHEN o.type='return' THEN -(i.total - i.qty * i.cost)
+                         ELSE 0 END), 0) AS profit
      FROM order_items i
      JOIN orders o ON o.id = i.order_id
-     WHERE o.type='sale' AND o.status != 'cancelled'`,
+     WHERE (o.type='sale' OR (o.type='return' AND o.customer_id IS NOT NULL))
+       AND o.status != 'cancelled'`,
   );
   return rows[0] ?? { revenue: 0, cost: 0, profit: 0 };
 }
@@ -235,23 +242,36 @@ export async function getProfitByProduct(
   toDate: string,
 ): Promise<ProfitReport[]> {
   const db = await getDb();
+  // Sale items: cộng dương. Return items (KH trả lại): trừ.
+  // Cần qty/revenue/cost ròng theo từng SP để khớp với P&L.
   return await db.select<ProfitReport[]>(
     `SELECT
-       p.id           AS product_id,
-       v.sku          AS sku,
-       p.name         AS name,
-       p.unit         AS base_unit,
-       SUM(i.qty * COALESCE(i.unit_factor, 1)) AS qty_sold,
-       SUM(i.total)                              AS revenue,
-       SUM(i.qty * i.cost)                       AS cost_total,
-       SUM(i.total) - SUM(i.qty * i.cost)        AS profit
+       p.id   AS product_id,
+       v.sku  AS sku,
+       p.name AS name,
+       p.unit AS base_unit,
+       SUM(CASE WHEN o.type='sale' THEN  i.qty * COALESCE(i.unit_factor, 1)
+                WHEN o.type='return' THEN -i.qty * COALESCE(i.unit_factor, 1)
+                ELSE 0 END) AS qty_sold,
+       SUM(CASE WHEN o.type='sale' THEN  i.total
+                WHEN o.type='return' THEN -i.total
+                ELSE 0 END) AS revenue,
+       SUM(CASE WHEN o.type='sale' THEN  i.qty * i.cost
+                WHEN o.type='return' THEN -i.qty * i.cost
+                ELSE 0 END) AS cost_total,
+       SUM(CASE WHEN o.type='sale' THEN  i.total - i.qty * i.cost
+                WHEN o.type='return' THEN -(i.total - i.qty * i.cost)
+                ELSE 0 END) AS profit
      FROM order_items i
      JOIN orders o           ON o.id = i.order_id
      JOIN product_variants v ON v.id = i.variant_id
      JOIN products p         ON p.id = v.product_id
-     WHERE o.type='sale' AND o.status != 'cancelled'
+     WHERE (o.type='sale'
+            OR (o.type='return' AND o.customer_id IS NOT NULL))
+       AND o.status != 'cancelled'
        AND date(o.created_at) BETWEEN date(?) AND date(?)
      GROUP BY p.id
+     HAVING qty_sold <> 0 OR revenue <> 0
      ORDER BY profit DESC`,
     [fromDate, toDate],
   );
@@ -303,4 +323,144 @@ export async function getDebtList(kind: "customer" | "supplier"): Promise<DebtRo
      WHERE debt_amount > 0
      ORDER BY debt_amount DESC`,
   );
+}
+
+export type CategoryAmount = { category: string; amount: number };
+
+export type ProfitLossReport = {
+  /** (1) Doanh thu bán hàng — tổng total đơn bán */
+  revenue: number;
+  /** Chiết khấu hoá đơn */
+  discount: number;
+  /** Giá trị hàng KH trả lại */
+  returns_value: number;
+  /** (2) Giảm trừ doanh thu = chiết khấu + hàng trả lại */
+  deductions: number;
+  /** (3) Doanh thu thuần */
+  net_revenue: number;
+  /** Giá vốn của đơn bán */
+  cogs_sales: number;
+  /** Giá vốn hàng trả lại */
+  cogs_returns: number;
+  /** (4) Giá vốn hàng bán = COGS bán − COGS hàng trả lại */
+  cogs: number;
+  /** (5) Lợi nhuận gộp = doanh thu thuần − giá vốn */
+  gross_profit: number;
+  /** (6) Chi phí — tổng phiếu chi nhập tay */
+  expenses: number;
+  /** Danh sách chi phí theo danh mục */
+  expense_breakdown: CategoryAmount[];
+  /** (7) Lợi nhuận từ hoạt động KD = gross profit − chi phí */
+  operating_profit: number;
+  /** (8) Thu nhập khác — tổng phiếu thu nhập tay */
+  other_income: number;
+  /** Danh sách thu nhập khác theo danh mục */
+  other_income_breakdown: CategoryAmount[];
+  /** (9) Lợi nhuận thuần = operating profit + thu nhập khác */
+  net_profit: number;
+};
+
+export async function getProfitLoss(
+  fromDate: string,
+  toDate: string,
+): Promise<ProfitLossReport> {
+  const db = await getDb();
+  const params = [fromDate, toDate];
+  const [
+    saleRows,
+    saleCogsRows,
+    returnsRows,
+    returnsCogsRows,
+    expenseRows,
+    incomeRows,
+  ] = await Promise.all([
+    db.select<{ revenue: number; discount: number }[]>(
+      `SELECT
+         COALESCE(SUM(total), 0)    AS revenue,
+         COALESCE(SUM(discount), 0) AS discount
+       FROM orders
+       WHERE type='sale' AND status != 'cancelled'
+         AND date(created_at) BETWEEN date(?) AND date(?)`,
+      params,
+    ),
+    db.select<{ cogs: number }[]>(
+      `SELECT COALESCE(SUM(i.qty * i.cost), 0) AS cogs
+       FROM order_items i
+       JOIN orders o ON o.id = i.order_id
+       WHERE o.type='sale' AND o.status != 'cancelled'
+         AND date(o.created_at) BETWEEN date(?) AND date(?)`,
+      params,
+    ),
+    db.select<{ value: number }[]>(
+      `SELECT COALESCE(SUM(total), 0) AS value
+       FROM orders
+       WHERE type='return' AND status != 'cancelled'
+         AND customer_id IS NOT NULL
+         AND date(created_at) BETWEEN date(?) AND date(?)`,
+      params,
+    ),
+    db.select<{ cogs: number }[]>(
+      `SELECT COALESCE(SUM(i.qty * i.cost), 0) AS cogs
+       FROM order_items i
+       JOIN orders o ON o.id = i.order_id
+       WHERE o.type='return' AND o.status != 'cancelled'
+         AND o.customer_id IS NOT NULL
+         AND date(o.created_at) BETWEEN date(?) AND date(?)`,
+      params,
+    ),
+    db.select<CategoryAmount[]>(
+      `SELECT
+         COALESCE(NULLIF(category, ''), '(không danh mục)') AS category,
+         SUM(amount) AS amount
+       FROM cash_transactions
+       WHERE type='out' AND ref_table IS NULL
+         AND date(created_at) BETWEEN date(?) AND date(?)
+       GROUP BY category
+       ORDER BY amount DESC`,
+      params,
+    ),
+    db.select<CategoryAmount[]>(
+      `SELECT
+         COALESCE(NULLIF(category, ''), '(không danh mục)') AS category,
+         SUM(amount) AS amount
+       FROM cash_transactions
+       WHERE type='in' AND ref_table IS NULL
+         AND date(created_at) BETWEEN date(?) AND date(?)
+       GROUP BY category
+       ORDER BY amount DESC`,
+      params,
+    ),
+  ]);
+
+  const revenue = saleRows[0]?.revenue ?? 0;
+  const discount = saleRows[0]?.discount ?? 0;
+  const returns_value = returnsRows[0]?.value ?? 0;
+  const deductions = discount + returns_value;
+  const net_revenue = revenue - deductions;
+  const cogs_sales = saleCogsRows[0]?.cogs ?? 0;
+  const cogs_returns = returnsCogsRows[0]?.cogs ?? 0;
+  const cogs = cogs_sales - cogs_returns;
+  const gross_profit = net_revenue - cogs;
+  const expenses = expenseRows.reduce((s, r) => s + r.amount, 0);
+  const operating_profit = gross_profit - expenses;
+  const other_income = incomeRows.reduce((s, r) => s + r.amount, 0);
+  const net_profit = operating_profit + other_income;
+
+  return {
+    revenue,
+    discount,
+    returns_value,
+    deductions,
+    net_revenue,
+    cogs_sales,
+    cogs_returns,
+    cogs,
+    gross_profit,
+    expenses,
+    expense_breakdown: expenseRows,
+    operating_profit,
+    other_income,
+    other_income_breakdown: incomeRows,
+    net_profit,
+  };
 }

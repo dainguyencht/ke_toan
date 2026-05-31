@@ -8,6 +8,7 @@ import { DayOrdersDialog } from "@/components/reports/DayOrdersDialog";
 import {
   useDebtList,
   useProfitByProduct,
+  useProfitLoss,
   useProfitTotal,
   useRevenueByDay,
   useRevenueTotal,
@@ -140,14 +141,18 @@ export default function Reports() {
         </p>
       </div>
 
-      <Tabs defaultValue="revenue">
+      <Tabs defaultValue="pnl">
         <TabsList>
+          <TabsTrigger value="pnl">Kết quả KD</TabsTrigger>
           <TabsTrigger value="revenue">Doanh thu</TabsTrigger>
           <TabsTrigger value="profit">Lãi gộp</TabsTrigger>
           <TabsTrigger value="stock">Tồn kho</TabsTrigger>
           <TabsTrigger value="debt">Công nợ</TabsTrigger>
         </TabsList>
 
+        <TabsContent value="pnl">
+          <ProfitLossReportView period={period} setPeriod={setPeriod} />
+        </TabsContent>
         <TabsContent value="revenue">
           <RevenueReport period={period} setPeriod={setPeriod} />
         </TabsContent>
@@ -165,12 +170,225 @@ export default function Reports() {
   );
 }
 
-/* ===== Doanh thu theo ngày ===== */
 type PeriodProps = {
   period: PeriodState;
   setPeriod: (p: PeriodState) => void;
 };
 
+/* ===== Kết quả kinh doanh (P&L) ===== */
+function ProfitLossReportView({ period, setPeriod }: PeriodProps) {
+  const { from, to } = useMemo(() => periodToDates(period), [period]);
+  const { data, isLoading } = useProfitLoss(from, to);
+
+  return (
+    <div className="space-y-3">
+      <RangeFilter value={period} onChange={setPeriod} />
+
+      {isLoading || !data ? (
+        <div className="p-12 text-center text-neutral-400 text-sm">Đang tải...</div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <PLStatement data={data} />
+          <div className="space-y-3">
+            <BreakdownTable
+              title="Chi tiết chi phí"
+              rows={data.expense_breakdown}
+              tone="red"
+              empty="Không có phiếu chi trong kỳ"
+            />
+            <BreakdownTable
+              title="Chi tiết thu nhập khác"
+              rows={data.other_income_breakdown}
+              tone="green"
+              empty="Không có phiếu thu trong kỳ"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type PLData = NonNullable<ReturnType<typeof useProfitLoss>["data"]>;
+
+function PLStatement({ data }: { data: PLData }) {
+  const profitTone = data.net_profit >= 0 ? "text-green-700" : "text-red-700";
+  return (
+    <div className="border border-neutral-200 rounded-md bg-white">
+      <Table>
+        <TBody>
+          <PLRow label="(1) Doanh thu bán hàng" value={data.revenue} />
+          <PLRow
+            label="(2) Giảm trừ doanh thu"
+            value={-data.deductions}
+            negative
+          />
+          <PLSub label="Chiết khấu hoá đơn" value={data.discount} />
+          <PLSub label="Hàng KH trả lại" value={data.returns_value} />
+          <PLRow
+            label="(3) Doanh thu thuần"
+            value={data.net_revenue}
+            divider
+            emphasis
+          />
+          <PLRow
+            label="(4) Giá vốn hàng bán"
+            value={-data.cogs}
+            negative
+            tooltip="Giá vốn đơn bán − giá vốn hàng KH trả lại"
+          />
+          <PLRow
+            label="(5) Lợi nhuận gộp"
+            value={data.gross_profit}
+            divider
+            emphasis
+            tone={data.gross_profit >= 0 ? "green" : "red"}
+          />
+          <PLRow
+            label="(6) Chi phí"
+            value={-data.expenses}
+            negative
+            tooltip="Tổng phiếu chi nhập tay (không gồm thanh toán NCC, trả nợ)"
+          />
+          <PLRow
+            label="(7) Lợi nhuận từ HĐKD"
+            value={data.operating_profit}
+            divider
+            emphasis
+            tone={data.operating_profit >= 0 ? "green" : "red"}
+          />
+          <PLRow
+            label="(8) Thu nhập khác"
+            value={data.other_income}
+            tooltip="Tổng phiếu thu nhập tay (không gồm thu từ đơn bán, thu nợ)"
+          />
+          <TR className="border-t-2 border-neutral-300">
+            <TD className="py-3 text-base font-semibold">
+              (9) Lợi nhuận thuần
+            </TD>
+            <TD className={cn("py-3 text-right text-lg font-bold tabular-nums", profitTone)}>
+              {formatVND(data.net_profit)}
+            </TD>
+          </TR>
+        </TBody>
+      </Table>
+    </div>
+  );
+}
+
+function PLRow({
+  label,
+  value,
+  negative,
+  divider,
+  emphasis,
+  tone,
+  tooltip,
+}: {
+  label: string;
+  value: number;
+  negative?: boolean;
+  divider?: boolean;
+  emphasis?: boolean;
+  tone?: "green" | "red";
+  tooltip?: string;
+}) {
+  const valTone =
+    tone === "green"
+      ? "text-green-700"
+      : tone === "red"
+        ? "text-red-700"
+        : negative
+          ? "text-red-700"
+          : "text-neutral-900";
+  return (
+    <TR className={cn(divider && "border-t border-neutral-200")}>
+      <TD className={cn(emphasis ? "font-semibold" : "font-medium")}>
+        {tooltip ? <Abbr title={tooltip}>{label}</Abbr> : label}
+      </TD>
+      <TD
+        className={cn(
+          "text-right tabular-nums",
+          emphasis ? "font-semibold" : "",
+          valTone,
+        )}
+      >
+        {formatVND(value)}
+      </TD>
+    </TR>
+  );
+}
+
+function PLSub({ label, value }: { label: string; value: number }) {
+  return (
+    <TR>
+      <TD className="pl-8 text-sm text-neutral-500">{label}</TD>
+      <TD className="text-right tabular-nums text-sm text-neutral-500">
+        {formatVND(value)}
+      </TD>
+    </TR>
+  );
+}
+
+function BreakdownTable({
+  title,
+  rows,
+  tone,
+  empty,
+}: {
+  title: string;
+  rows: { category: string; amount: number }[];
+  tone: "green" | "red";
+  empty: string;
+}) {
+  const total = rows.reduce((s, r) => s + r.amount, 0);
+  const valTone = tone === "green" ? "text-green-700" : "text-red-700";
+  return (
+    <div className="border border-neutral-200 rounded-md bg-white">
+      <div className="px-3 py-2 border-b border-neutral-200 text-sm font-medium">
+        {title}
+      </div>
+      {rows.length === 0 ? (
+        <div className="p-6 text-center text-neutral-400 text-sm">{empty}</div>
+      ) : (
+        <Table>
+          <THead>
+            <TR>
+              <TH>Danh mục</TH>
+              <TH className="text-right">Số tiền</TH>
+              <TH className="text-right w-20">%</TH>
+            </TR>
+          </THead>
+          <TBody>
+            {rows.map((r) => {
+              const pct = total > 0 ? (r.amount / total) * 100 : 0;
+              return (
+                <TR key={r.category}>
+                  <TD>{r.category}</TD>
+                  <TD className={cn("text-right tabular-nums", valTone)}>
+                    {formatVND(r.amount)}
+                  </TD>
+                  <TD className="text-right tabular-nums text-neutral-500 text-sm">
+                    {formatPercent(pct)}
+                  </TD>
+                </TR>
+              );
+            })}
+            <TR className="bg-neutral-50 font-medium">
+              <TD>Tổng cộng</TD>
+              <TD className={cn("text-right tabular-nums", valTone)}>
+                {formatVND(total)}
+              </TD>
+              <TD />
+            </TR>
+          </TBody>
+        </Table>
+      )}
+    </div>
+  );
+}
+
+/* ===== Doanh thu theo ngày ===== */
 function RevenueReport({ period, setPeriod }: PeriodProps) {
   const [pickedDate, setPickedDate] = useState<string | null>(null);
   const { from, to } = useMemo(() => periodToDates(period), [period]);
