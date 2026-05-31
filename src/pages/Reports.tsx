@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Abbr } from "@/components/ui/abbr";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DayOrdersDialog } from "@/components/reports/DayOrdersDialog";
 import {
   useDebtList,
   useProfitByProduct,
@@ -98,6 +99,7 @@ export default function Reports() {
 /* ===== Doanh thu theo ngày ===== */
 function RevenueReport() {
   const [range, setRange] = useState<Range>("30d");
+  const [pickedDate, setPickedDate] = useState<string | null>(null);
   const { from, to } = useMemo(() => rangeToDates(range), [range]);
   const { data = [] } = useRevenueByDay(from, to);
   const { data: allTime } = useRevenueTotal();
@@ -142,7 +144,11 @@ function RevenueReport() {
             </THead>
             <TBody>
               {data.map((r) => (
-                <TR key={r.date}>
+                <TR
+                  key={r.date}
+                  onClick={() => setPickedDate(r.date)}
+                  className="cursor-pointer"
+                >
                   <TD>{formatDate(r.date)}</TD>
                   <TD className="text-right tabular-nums">{r.orders}</TD>
                   <TD className="text-right tabular-nums font-medium">
@@ -157,6 +163,12 @@ function RevenueReport() {
           </Table>
         )}
       </div>
+
+      <DayOrdersDialog
+        open={pickedDate != null}
+        onOpenChange={(o) => !o && setPickedDate(null)}
+        date={pickedDate}
+      />
     </div>
   );
 }

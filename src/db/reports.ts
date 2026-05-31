@@ -43,14 +43,14 @@ export async function getDashboardStats(lowStockThreshold = 5): Promise<Dashboar
        FROM order_items i
        JOIN orders o ON o.id = i.order_id
        WHERE o.type='sale' AND o.status != 'cancelled'
-         AND date(o.created_at,'localtime') = date('now','localtime')`,
+         AND date(o.created_at) = date('now','localtime')`,
     ),
     db.select<{ profit: number }[]>(
       `SELECT COALESCE(SUM(i.total) - SUM(i.qty * i.cost), 0) AS profit
        FROM order_items i
        JOIN orders o ON o.id = i.order_id
        WHERE o.type='sale' AND o.status != 'cancelled'
-         AND date(o.created_at,'localtime') >= date('now','localtime','-6 days')`,
+         AND date(o.created_at) >= date('now','localtime','-6 days')`,
     ),
     db.select<{ total: number }[]>(
       `SELECT COALESCE(SUM(debt_amount), 0) AS total FROM customers`,
@@ -166,12 +166,12 @@ export async function getRevenueByDay(
   const db = await getDb();
   return await db.select<RevenueByDay[]>(
     `SELECT
-       date(created_at,'localtime') AS date,
+       date(created_at)              AS date,
        COALESCE(SUM(total), 0)       AS revenue,
        COUNT(*)                       AS orders
      FROM orders
      WHERE type='sale' AND status != 'cancelled'
-       AND date(created_at,'localtime') BETWEEN date(?) AND date(?)
+       AND date(created_at) BETWEEN date(?) AND date(?)
      GROUP BY date
      ORDER BY date DESC`,
     [fromDate, toDate],
@@ -191,7 +191,7 @@ export async function getRevenueTotal(): Promise<RevenueTotal> {
     `SELECT
        COALESCE(SUM(total), 0)        AS revenue,
        COUNT(*)                        AS orders,
-       MIN(date(created_at,'localtime')) AS first_order_date
+       MIN(date(created_at))             AS first_order_date
      FROM orders
      WHERE type='sale' AND status != 'cancelled'`,
   );
@@ -250,7 +250,7 @@ export async function getProfitByProduct(
      JOIN product_variants v ON v.id = i.variant_id
      JOIN products p         ON p.id = v.product_id
      WHERE o.type='sale' AND o.status != 'cancelled'
-       AND date(o.created_at,'localtime') BETWEEN date(?) AND date(?)
+       AND date(o.created_at) BETWEEN date(?) AND date(?)
      GROUP BY p.id
      ORDER BY profit DESC`,
     [fromDate, toDate],

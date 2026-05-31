@@ -1,10 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  addCustomCashCategory,
+  countTransactionsByCategory,
   createCashTransaction,
   deleteCashTransaction,
   getCashSummary,
   listCashTransactions,
   listContactCashFlow,
+  listCustomCashCategories,
+  removeCustomCashCategory,
+  renameCustomCashCategory,
   updateCashTransaction,
   updateCashTransactionDate,
   updateLinkedCash,
@@ -94,5 +99,60 @@ export function useDeleteCashTransaction() {
   return useMutation({
     mutationFn: (id: number) => deleteCashTransaction(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}
+
+export function useCustomCashCategories(type: "in" | "out") {
+  return useQuery({
+    queryKey: [...KEY, "categories", type],
+    queryFn: () => listCustomCashCategories(type),
+  });
+}
+
+export function useAddCustomCashCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ type, name }: { type: "in" | "out"; name: string }) =>
+      addCustomCashCategory(type, name),
+    onSuccess: (_, { type }) =>
+      qc.invalidateQueries({ queryKey: [...KEY, "categories", type] }),
+  });
+}
+
+export function useRemoveCustomCashCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ type, name }: { type: "in" | "out"; name: string }) =>
+      removeCustomCashCategory(type, name),
+    onSuccess: (_, { type }) =>
+      qc.invalidateQueries({ queryKey: [...KEY, "categories", type] }),
+  });
+}
+
+export function useRenameCustomCashCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      type,
+      oldName,
+      newName,
+    }: {
+      type: "in" | "out";
+      oldName: string;
+      newName: string;
+    }) => renameCustomCashCategory(type, oldName, newName),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}
+
+export function useCountTransactionsByCategory(
+  type: "in" | "out",
+  name: string | null,
+) {
+  return useQuery({
+    queryKey: [...KEY, "category-count", type, name],
+    queryFn: () =>
+      name ? countTransactionsByCategory(type, name) : Promise.resolve(0),
+    enabled: name != null,
   });
 }

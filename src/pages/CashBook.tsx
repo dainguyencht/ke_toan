@@ -2,8 +2,9 @@ import { useMemo, useState } from "react";
 import { Plus, TrendingUp, TrendingDown, Wallet, Trash2, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CashTransactionForm } from "@/components/cash/CashTransactionForm";
+import { CategoryManager } from "@/components/cash/CategoryManager";
 import { EditCashDateDialog } from "@/components/cash/EditCashDateDialog";
 import {
   useCashSummary,
@@ -25,6 +26,7 @@ const PRESETS: Record<PresetRange, { label: string; from: string | null }> = {
 };
 
 export default function CashBook() {
+  const [tab, setTab] = useState<"transactions" | "categories">("transactions");
   const [range, setRange] = useState<PresetRange>("30d");
   const [typeFilter, setTypeFilter] = useState<"all" | "in" | "out">("all");
   const [openForm, setOpenForm] = useState(false);
@@ -74,16 +76,30 @@ export default function CashBook() {
             Thu/chi tiền mặt, tự động ghi từ đơn hàng + ghi tay
           </p>
         </div>
-        <Button
-          onClick={() => {
-            setEditTx(null);
-            setOpenForm(true);
-          }}
-        >
-          <Plus className="w-4 h-4" />
-          Ghi thu/chi
-        </Button>
+        {tab === "transactions" && (
+          <Button
+            onClick={() => {
+              setEditTx(null);
+              setOpenForm(true);
+            }}
+          >
+            <Plus className="w-4 h-4" />
+            Ghi thu/chi
+          </Button>
+        )}
       </div>
+
+      <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+        <TabsList>
+          <TabsTrigger value="transactions">Giao dịch</TabsTrigger>
+          <TabsTrigger value="categories">Danh mục</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="categories" className="mt-4">
+          <CategoryManager />
+        </TabsContent>
+
+        <TabsContent value="transactions" className="mt-4 space-y-4">
 
       {/* Tồn quỹ tích lũy */}
       <div
@@ -237,6 +253,9 @@ export default function CashBook() {
           </Table>
         )}
       </div>
+
+        </TabsContent>
+      </Tabs>
 
       <CashTransactionForm
         open={openForm}

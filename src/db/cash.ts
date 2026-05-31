@@ -265,6 +265,104 @@ export async function updateCashTransaction(
   );
 }
 
+/** Danh mục thu/chi do người dùng tự thêm — lưu JSON array trong app_settings. */
+function categoryKey(type: "in" | "out"): string {
+  return type === "in" ? "cash_categories_in" : "cash_categories_out";
+}
+
+export async function listCustomCashCategories(
+  type: "in" | "out",
+): Promise<string[]> {
+  const db = await getDb();
+  const rows = await db.select<{ value: string | null }[]>(
+    "SELECT value FROM app_settings WHERE key = ?",
+    [categoryKey(type)],
+  );
+  const v = rows[0]?.value;
+  if (!v) return [];
+  try {
+    const parsed = JSON.parse(v);
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function addCustomCashCategory(
+  type: "in" | "out",
+  name: string,
+): Promise<void> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Tên danh mục không được để trống");
+  const existing = await listCustomCashCategories(type);
+  if (existing.includes(trimmed)) return;
+  const updated = [...existing, trimmed];
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    [categoryKey(type), JSON.stringify(updated)],
+  );
+}
+
+export async function removeCustomCashCategory(
+  type: "in" | "out",
+  name: string,
+): Promise<void> {
+  const existing = await listCustomCashCategories(type);
+  const updated = existing.filter((c) => c !== name);
+  if (updated.length === existing.length) return;
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    [categoryKey(type), JSON.stringify(updated)],
+  );
+}
+
+/** Đổi tên danh mục tự thêm + đồng bộ các giao dịch đang dùng tên cũ. */
+export async function renameCustomCashCategory(
+  type: "in" | "out",
+  oldName: string,
+  newName: string,
+): Promise<void> {
+  const trimmed = newName.trim();
+  if (!trimmed) throw new Error("Tên danh mục không được để trống");
+  if (trimmed === oldName) return;
+  const existing = await listCustomCashCategories(type);
+  if (!existing.includes(oldName)) {
+    throw new Error("Không tìm thấy danh mục để đổi tên");
+  }
+  if (existing.includes(trimmed)) {
+    throw new Error("Tên danh mục đã tồn tại");
+  }
+  const updated = existing.map((c) => (c === oldName ? trimmed : c));
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    [categoryKey(type), JSON.stringify(updated)],
+  );
+  // Đồng bộ các giao dịch đã dùng tên cũ
+  await db.execute(
+    "UPDATE cash_transactions SET category = ? WHERE category = ? AND type = ?",
+    [trimmed, oldName, type],
+  );
+}
+
+/** Số giao dịch (chưa huỷ) đang dùng danh mục này — để cảnh báo trước khi xoá. */
+export async function countTransactionsByCategory(
+  type: "in" | "out",
+  name: string,
+): Promise<number> {
+  const db = await getDb();
+  const rows = await db.select<{ c: number }[]>(
+    "SELECT COUNT(*) AS c FROM cash_transactions WHERE type = ? AND category = ?",
+    [type, name],
+  );
+  return rows[0]?.c ?? 0;
+}
+
 export async function deleteCashTransaction(id: number): Promise<void> {
   const db = await getDb();
   // Chỉ cho xóa các giao dịch nhập tay (không có ref_table='orders')

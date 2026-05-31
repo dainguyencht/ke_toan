@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   useCreateCashTransaction,
+  useCustomCashCategories,
   useUpdateCashTransaction,
 } from "@/hooks/useCash";
 import { cn, dateTimeLocalToDb, toDateTimeLocalValue } from "@/lib/utils";
@@ -62,6 +63,7 @@ export function CashTransactionForm({
   const [form, setForm] = useState<FormState>(emptyForm);
   const create = useCreateCashTransaction();
   const update = useUpdateCashTransaction();
+  const { data: customCats = [] } = useCustomCashCategories(form.type);
   const isEdit = editTransaction != null;
   const busy = create.isPending || update.isPending;
 
@@ -89,6 +91,13 @@ export function CashTransactionForm({
     setForm((f) => ({ ...f, [key]: value }));
 
   const presets = form.type === "in" ? PRESETS_IN : PRESETS_OUT;
+  // Preset chuẩn (bỏ "Khác") + danh mục tự thêm (dedupe) + "Khác" cuối cùng
+  const builtins = presets.filter((p) => p !== "Khác");
+  const allCategories = [
+    ...builtins,
+    ...customCats.filter((c) => !builtins.includes(c)),
+    "Khác",
+  ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -192,7 +201,7 @@ export function CashTransactionForm({
               className="flex h-9 w-full rounded-md border border-neutral-300 bg-white px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
             >
               <option value="">-- Chọn danh mục --</option>
-              {presets.map((p) => (
+              {allCategories.map((p) => (
                 <option key={p} value={p}>
                   {p}
                 </option>

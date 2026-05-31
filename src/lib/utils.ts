@@ -60,9 +60,11 @@ export function formatDateTime(value: string | Date): string {
   }).format(d);
 }
 
-/** ISO date string 'YYYY-MM-DD' cho query SQLite */
+/** ISO date string 'YYYY-MM-DD' theo giờ LOCAL — dùng làm filter so với
+ * date(created_at) (cũng lưu local). toISOString() trả UTC nên sai sớm/khuya. */
 export function toISODate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
