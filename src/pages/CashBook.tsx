@@ -7,39 +7,43 @@ import { CashTransactionForm } from "@/components/cash/CashTransactionForm";
 import { CategoryManager } from "@/components/cash/CategoryManager";
 import { EditCashDateDialog } from "@/components/cash/EditCashDateDialog";
 import {
+  PeriodFilter,
+  initialPeriod,
+  periodToDates,
+  type PeriodMode,
+  type PeriodState,
+} from "@/components/period-filter";
+import {
   useCashSummary,
   useCashTransactions,
   useDeleteCashTransaction,
 } from "@/hooks/useCash";
 import { useDeleteDebtPayment } from "@/hooks/useContacts";
-import { cn, daysAgo, formatDateTime, formatVND } from "@/lib/utils";
+import { cn, formatDateTime, formatVND } from "@/lib/utils";
 import type { CashFilter, CashRow } from "@/db/cash";
 import { toast } from "sonner";
 
-type PresetRange = "today" | "7d" | "30d" | "all";
-
-const PRESETS: Record<PresetRange, { label: string; from: string | null }> = {
-  today: { label: "Hôm nay", from: daysAgo(0) },
-  "7d": { label: "7 ngày", from: daysAgo(6) },
-  "30d": { label: "30 ngày", from: daysAgo(29) },
-  all: { label: "Tất cả", from: null },
-};
+const CASH_MODES: PeriodMode[] = [
+  "day",
+  "month",
+  "quarter",
+  "year",
+  "custom",
+  "all",
+];
 
 export default function CashBook() {
   const [tab, setTab] = useState<"transactions" | "categories">("transactions");
-  const [range, setRange] = useState<PresetRange>("30d");
+  const [period, setPeriod] = useState<PeriodState>(() => initialPeriod("month"));
   const [typeFilter, setTypeFilter] = useState<"all" | "in" | "out">("all");
   const [openForm, setOpenForm] = useState(false);
   const [editTx, setEditTx] = useState<CashRow | null>(null);
   const [dateEditTx, setDateEditTx] = useState<CashRow | null>(null);
 
-  const filter = useMemo<CashFilter>(
-    () => ({
-      from: PRESETS[range].from,
-      type: typeFilter,
-    }),
-    [range, typeFilter],
-  );
+  const filter = useMemo<CashFilter>(() => {
+    const { from, to } = periodToDates(period);
+    return { from, to, type: typeFilter };
+  }, [period, typeFilter]);
 
   const { data: summary } = useCashSummary(filter);
   const { data: transactions, isLoading } = useCashTransactions(filter);
@@ -141,15 +145,7 @@ export default function CashBook() {
 
       {/* Filters */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <Tabs value={range} onValueChange={(v) => setRange(v as PresetRange)}>
-          <TabsList>
-            {(Object.keys(PRESETS) as PresetRange[]).map((k) => (
-              <TabsTrigger key={k} value={k}>
-                {PRESETS[k].label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        <PeriodFilter value={period} onChange={setPeriod} modes={CASH_MODES} />
         <Tabs value={typeFilter} onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}>
           <TabsList>
             <TabsTrigger value="all">Tất cả</TabsTrigger>
