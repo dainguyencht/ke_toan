@@ -180,12 +180,20 @@ body {
   font-weight: bold;
 }
 
-/* Signatures */
+/* Signatures — dùng table cho print behavior ổn định hơn grid */
 .inv-signatures {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+  table-layout: fixed;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+.inv-signatures td {
+  width: 25%;
   text-align: center;
-  margin-top: 30px;
+  vertical-align: top;
+  padding-bottom: 40px;
 }
 .inv-sig-title {
   font-weight: bold;
@@ -195,11 +203,22 @@ body {
   font-style: italic;
   font-size: 0.93em;
   margin-top: 2px;
-  margin-bottom: 60px;
 }
 
 /* @page rule được inject động trong PrintInvoice page (size + orientation
    user chọn trong InvoicePreviewDialog). */
 @media print {
   body { background: white !important; color: black !important; margin: 0; padding: 0; }
+  /* Bỏ height: 100% trên html/body/#root để không "khoá" content khít một trang
+     (nguyên nhân hay đẩy signature sang trang 2 ở khổ A4 portrait). */
+  html, body, #root {
+    height: auto !important;
+    min-height: 0 !important;
+  }
+  /* Đảm bảo các block của hoá đơn không bị tự thêm page-break do default heuristics. */
+  .inv-wrap, .inv-header, .inv-title-block, .inv-customer-table,
+  .inv-bottom-summary, .inv-signatures {
+    page-break-before: auto;
+    break-before: auto;
+  }
 }

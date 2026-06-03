@@ -182,24 +182,28 @@ export function InvoiceLayout({
       </div>
 
       {/* Signatures: Khách Hàng | Kế Toán | Thủ Kho | Thủ Quỹ */}
-      <div className="inv-signatures">
-        <div>
-          <div className="inv-sig-title">Khách Hàng</div>
-          <div className="inv-sig-sub">(Ký, Họ Tên)</div>
-        </div>
-        <div>
-          <div className="inv-sig-title">Kế Toán</div>
-          <div className="inv-sig-sub">(Ký, Họ Tên)</div>
-        </div>
-        <div>
-          <div className="inv-sig-title">Thủ Kho</div>
-          <div className="inv-sig-sub">(Ký, Họ Tên)</div>
-        </div>
-        <div>
-          <div className="inv-sig-title">Thủ Quỹ</div>
-          <div className="inv-sig-sub">(Ký, Họ Tên)</div>
-        </div>
-      </div>
+      <table className="inv-signatures">
+        <tbody>
+          <tr>
+            <td>
+              <div className="inv-sig-title">Khách Hàng</div>
+              <div className="inv-sig-sub">(Ký, Họ Tên)</div>
+            </td>
+            <td>
+              <div className="inv-sig-title">Kế Toán</div>
+              <div className="inv-sig-sub">(Ký, Họ Tên)</div>
+            </td>
+            <td>
+              <div className="inv-sig-title">Thủ Kho</div>
+              <div className="inv-sig-sub">(Ký, Họ Tên)</div>
+            </td>
+            <td>
+              <div className="inv-sig-title">Thủ Quỹ</div>
+              <div className="inv-sig-sub">(Ký, Họ Tên)</div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }
