@@ -20,13 +20,19 @@ const TABLE: Record<ContactKind, string> = {
 export async function listContacts(kind: ContactKind, search = ""): Promise<Contact[]> {
   const db = await getDb();
   const table = TABLE[kind];
-  const like = `%${search.trim()}%`;
+  const trimmed = search.trim();
+  if (!trimmed) {
+    return await db.select<Contact[]>(
+      `SELECT * FROM ${table} ORDER BY created_at DESC LIMIT 500`,
+    );
+  }
+  const like = `%${trimmed}%`;
   return await db.select<Contact[]>(
     `SELECT * FROM ${table}
-     WHERE ? = '' OR name LIKE ? OR phone LIKE ?
+     WHERE name LIKE ? OR phone LIKE ?
      ORDER BY created_at DESC
      LIMIT 500`,
-    [search.trim(), like, like],
+    [like, like],
   );
 }
 

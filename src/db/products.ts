@@ -21,9 +21,9 @@ export type ProductInput = {
 
 export async function listProducts(search = ""): Promise<ProductWithStock[]> {
   const db = await getDb();
-  const like = `%${search.trim()}%`;
+  const trimmed = search.trim();
   // Tính tổng tồn từ stock_qty cache trên variants.
-  const sql = `
+  const baseSelect = `
     SELECT
       p.*,
       COALESCE(SUM(v.stock_qty), 0)        AS total_stock,
@@ -33,13 +33,26 @@ export async function listProducts(search = ""): Promise<ProductWithStock[]> {
         ORDER BY id LIMIT 1)               AS default_variant_id
     FROM products p
     LEFT JOIN product_variants v ON v.product_id = p.id
-    WHERE p.is_archived = 0
-      AND (? = '' OR p.name LIKE ? OR p.sku LIKE ? OR p.barcode LIKE ?)
-    GROUP BY p.id
-    ORDER BY p.updated_at DESC
-    LIMIT 500
   `;
-  return await db.select<ProductWithStock[]>(sql, [search.trim(), like, like, like]);
+  if (!trimmed) {
+    return await db.select<ProductWithStock[]>(
+      `${baseSelect}
+       WHERE p.is_archived = 0
+       GROUP BY p.id
+       ORDER BY p.updated_at DESC
+       LIMIT 500`,
+    );
+  }
+  const like = `%${trimmed}%`;
+  return await db.select<ProductWithStock[]>(
+    `${baseSelect}
+     WHERE p.is_archived = 0
+       AND (p.name LIKE ? OR p.sku LIKE ? OR p.barcode LIKE ?)
+     GROUP BY p.id
+     ORDER BY p.updated_at DESC
+     LIMIT 500`,
+    [like, like, like],
+  );
 }
 
 export async function getProduct(id: number): Promise<Product | null> {
