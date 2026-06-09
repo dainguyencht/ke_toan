@@ -119,9 +119,9 @@ body {
 .inv-table th,
 .inv-table td {
   border: 1px solid #555;
-  padding: 1px 6px;
-  font-size: 0.87em;
-  line-height: 1.15;
+  padding: 0 6px;
+  font-size: 0.8em;
+  line-height: 1.1;
   vertical-align: middle;
   word-wrap: break-word;
 }
@@ -155,19 +155,18 @@ body {
 .inv-table col.col-price { width: 13%; }
 .inv-table col.col-total { width: 16%; }
 
-/* Summary nợ — giữ cùng một block (không break giữa các dòng) */
+/* Summary nợ — block tự nhiên, không ép keep-together (tránh Chromium
+   mis-calc và push toàn bộ summary + total row của items table sang page 2). */
 .inv-bottom-summary {
-  margin-top: 8px;
-  font-size: 1em;
-  line-height: 1.4;
-  page-break-inside: avoid;
-  break-inside: avoid;
+  margin-top: 6px;
+  font-size: 0.95em;
+  line-height: 1.3;
 }
 .inv-bottom-summary .sum-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 1px;
+  margin-bottom: 0;
 }
 .inv-bottom-summary .sum-label {
   font-weight: bold;
@@ -195,7 +194,7 @@ body {
   width: 25%;
   text-align: center;
   vertical-align: top;
-  padding-bottom: 25px;
+  padding-bottom: 12px;
 }
 .inv-sig-title {
   font-weight: bold;

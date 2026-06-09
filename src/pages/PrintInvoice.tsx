@@ -63,12 +63,6 @@ export default function PrintInvoice() {
       @page {
         size: ${size} ${orient};
         margin: 0;
-        @top-left { content: ""; }
-        @top-center { content: ""; }
-        @top-right { content: ""; }
-        @bottom-left { content: ""; }
-        @bottom-center { content: ""; }
-        @bottom-right { content: ""; }
       }
     `;
     return () => {
