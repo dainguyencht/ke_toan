@@ -46,10 +46,10 @@ body {
   grid-template-columns: 1fr 1fr;
   align-items: start;
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 8px;
 }
 .inv-shop-col {
-  padding-top: 4px;
+  padding-top: 2px;
 }
 .inv-shop {
   font-size: 1.33em;
@@ -78,7 +78,7 @@ body {
 /* Tiêu đề */
 .inv-title-block {
   text-align: center;
-  margin: 8px 0 12px;
+  margin: 4px 0 6px;
 }
 .inv-title {
   font-size: 1.47em;
@@ -93,10 +93,10 @@ body {
 .inv-customer-table {
   width: 100%;
   border-collapse: collapse;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 .inv-customer-table td {
-  padding: 3px 4px;
+  padding: 1px 4px;
   font-size: 1em;
   vertical-align: top;
 }
@@ -119,9 +119,9 @@ body {
 .inv-table th,
 .inv-table td {
   border: 1px solid #555;
-  padding: 2px 6px;
+  padding: 1px 6px;
   font-size: 0.87em;
-  line-height: 1.2;
+  line-height: 1.15;
   vertical-align: middle;
   word-wrap: break-word;
 }
@@ -155,17 +155,19 @@ body {
 .inv-table col.col-price { width: 13%; }
 .inv-table col.col-total { width: 16%; }
 
-/* Summary nợ */
+/* Summary nợ — giữ cùng một block (không break giữa các dòng) */
 .inv-bottom-summary {
-  margin-top: 10px;
+  margin-top: 8px;
   font-size: 1em;
-  line-height: 1.8;
+  line-height: 1.4;
+  page-break-inside: avoid;
+  break-inside: avoid;
 }
 .inv-bottom-summary .sum-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 3px;
+  margin-bottom: 1px;
 }
 .inv-bottom-summary .sum-label {
   font-weight: bold;
@@ -180,20 +182,20 @@ body {
   font-weight: bold;
 }
 
-/* Signatures — dùng table cho print behavior ổn định hơn grid */
+/* Signatures — dùng table cho print behavior ổn định hơn grid.
+   Không set page-break-inside ở đây — để <tr> giữ inline-row tự nhiên
+   bằng default browser behavior (table rows không bị tách). */
 .inv-signatures {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 20px;
+  margin-top: 15px;
   table-layout: fixed;
-  page-break-inside: avoid;
-  break-inside: avoid;
 }
 .inv-signatures td {
   width: 25%;
   text-align: center;
   vertical-align: top;
-  padding-bottom: 40px;
+  padding-bottom: 25px;
 }
 .inv-sig-title {
   font-weight: bold;

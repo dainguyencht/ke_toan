@@ -106,7 +106,7 @@ export default function PrintInvoice() {
   return (
     <div
       style={{
-        padding: "8mm 10mm",
+        padding: "5mm 8mm",
         background: "white",
         boxSizing: "border-box",
       }}

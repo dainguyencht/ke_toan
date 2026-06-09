@@ -234,7 +234,7 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
             style={{
               width: `${w}mm`,
               minHeight: `${h}mm`,
-              padding: "8mm 10mm",
+              padding: "5mm 8mm",
               boxSizing: "border-box",
               fontFamily: '"Times New Roman", Times, serif',
               fontSize: "13px",
