@@ -17,6 +17,16 @@ const TABLE: Record<ContactKind, string> = {
   supplier: "suppliers",
 };
 
+/** Tổng dư nợ của tất cả KH hoặc NCC (gồm cả âm = trả trước). */
+export async function getTotalDebt(kind: ContactKind): Promise<number> {
+  const db = await getDb();
+  const table = TABLE[kind];
+  const rows = await db.select<{ total: number }[]>(
+    `SELECT COALESCE(SUM(debt_amount), 0) AS total FROM ${table}`,
+  );
+  return rows[0]?.total ?? 0;
+}
+
 export async function listContacts(kind: ContactKind, search = ""): Promise<Contact[]> {
   const db = await getDb();
   const table = TABLE[kind];
@@ -141,6 +151,109 @@ export async function setContactDebt(
     newDebt,
     contactId,
   ]);
+}
+
+/** Phiếu điều chỉnh dư nợ — track lịch sử khi user sửa thẳng debt_amount. */
+export type DebtAdjustment = {
+  id: number;
+  code: string;
+  kind: ContactKind;
+  contact_id: number;
+  old_debt: number;
+  new_debt: number;
+  change_amount: number;
+  note: string | null;
+  created_at: string;
+};
+
+async function generateAdjustmentCode(dateStr?: string): Promise<string> {
+  const db = await getDb();
+  if (!dateStr) {
+    const today = new Date();
+    dateStr =
+      today.getFullYear().toString() +
+      String(today.getMonth() + 1).padStart(2, "0") +
+      String(today.getDate()).padStart(2, "0");
+  }
+  const like = `DC-${dateStr}-%`;
+  const rows = await db.select<{ c: number }[]>(
+    "SELECT COUNT(*) AS c FROM debt_adjustments WHERE code LIKE ?",
+    [like],
+  );
+  const next = (rows[0]?.c ?? 0) + 1;
+  return `DC-${dateStr}-${String(next).padStart(3, "0")}`;
+}
+
+/**
+ * Điều chỉnh dư nợ KH/NCC + tạo phiếu DC để track audit trail.
+ * Khác với setContactDebt: cái này CÓ ghi vào lịch sử.
+ */
+export async function createDebtAdjustment(
+  kind: ContactKind,
+  contactId: number,
+  newDebt: number,
+  note?: string | null,
+  createdAt?: string,
+): Promise<number> {
+  const db = await getDb();
+  const table = TABLE[kind];
+  const rows = await db.select<{ debt_amount: number }[]>(
+    `SELECT debt_amount FROM ${table} WHERE id = ?`,
+    [contactId],
+  );
+  if (rows.length === 0) throw new Error("Không tìm thấy KH/NCC");
+  const oldDebt = rows[0].debt_amount ?? 0;
+  if (newDebt === oldDebt) return 0;
+
+  const ts = createdAt ?? dbDateTime();
+  const code = await generateAdjustmentCode(ts.slice(0, 10).replace(/-/g, ""));
+  const change = newDebt - oldDebt;
+
+  const result = await db.execute(
+    `INSERT INTO debt_adjustments
+       (code, kind, contact_id, old_debt, new_debt, change_amount, note, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [code, kind, contactId, oldDebt, newDebt, change, note ?? null, ts],
+  );
+
+  await db.execute(`UPDATE ${table} SET debt_amount = ? WHERE id = ?`, [
+    newDebt,
+    contactId,
+  ]);
+
+  return Number(result.lastInsertId);
+}
+
+export async function listDebtAdjustments(
+  kind: ContactKind,
+  contactId: number,
+): Promise<DebtAdjustment[]> {
+  const db = await getDb();
+  return await db.select<DebtAdjustment[]>(
+    `SELECT * FROM debt_adjustments
+     WHERE kind = ? AND contact_id = ?
+     ORDER BY created_at DESC`,
+    [kind, contactId],
+  );
+}
+
+/** Xoá phiếu điều chỉnh — đảo ngược change_amount khỏi dư nợ contact. */
+export async function deleteDebtAdjustment(id: number): Promise<void> {
+  const db = await getDb();
+  const rows = await db.select<
+    { kind: string; contact_id: number; change_amount: number }[]
+  >(
+    "SELECT kind, contact_id, change_amount FROM debt_adjustments WHERE id = ?",
+    [id],
+  );
+  if (rows.length === 0) throw new Error("Không tìm thấy phiếu điều chỉnh");
+  const r = rows[0];
+  const table = TABLE[r.kind as ContactKind];
+  await db.execute(
+    `UPDATE ${table} SET debt_amount = debt_amount - ? WHERE id = ?`,
+    [r.change_amount, r.contact_id],
+  );
+  await db.execute("DELETE FROM debt_adjustments WHERE id = ?", [id]);
 }
 
 export async function deleteDebtPayment(id: number): Promise<void> {

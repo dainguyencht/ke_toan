@@ -7,8 +7,13 @@ import { Abbr } from "@/components/ui/abbr";
 import { ContactForm } from "./ContactForm";
 import { PayDebtDialog } from "./PayDebtDialog";
 import { ContactOrdersDialog } from "./ContactOrdersDialog";
-import { useContacts, useDeleteContact } from "@/hooks/useContacts";
-import { formatVND } from "@/lib/utils";
+import { AdjustDebtDialog } from "./AdjustDebtDialog";
+import {
+  useContacts,
+  useDeleteContact,
+  useTotalDebt,
+} from "@/hooks/useContacts";
+import { cn, formatVND } from "@/lib/utils";
 import type { Contact, ContactKind } from "@/db/contacts";
 import { toast } from "sonner";
 
@@ -26,9 +31,11 @@ export function ContactList({ kind }: Props) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Contact | null>(null);
   const [payingDebt, setPayingDebt] = useState<Contact | null>(null);
+  const [adjustingDebt, setAdjustingDebt] = useState<Contact | null>(null);
   const [viewingOrders, setViewingOrders] = useState<Contact | null>(null);
 
   const { data, isLoading, error } = useContacts(kind, search);
+  const { data: totalDebt = 0 } = useTotalDebt(kind);
   const del = useDeleteContact(kind);
   const labels = LABEL[kind];
 
@@ -50,8 +57,26 @@ export function ContactList({ kind }: Props) {
     }
   };
 
+  const debtLabel =
+    kind === "customer" ? "Tổng phải thu (KH)" : "Tổng phải trả (NCC)";
+
   return (
     <div className="space-y-4">
+      <div
+        className={cn(
+          "border rounded-md p-3 text-sm flex items-center justify-between",
+          totalDebt > 0
+            ? "border-amber-200 bg-amber-50 text-amber-800"
+            : totalDebt < 0
+              ? "border-green-200 bg-green-50 text-green-800"
+              : "border-neutral-200 bg-neutral-50 text-neutral-700",
+        )}
+      >
+        <span className="font-medium">{debtLabel}:</span>
+        <span className="tabular-nums text-base font-semibold">
+          {formatVND(totalDebt)}
+        </span>
+      </div>
       <div className="flex items-center justify-between gap-3">
         <div className="relative max-w-sm flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
@@ -160,10 +185,18 @@ export function ContactList({ kind }: Props) {
                         {kind === "customer" ? "Thu tiền" : "Trả tiền"}
                       </Button>
                       <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setAdjustingDebt(c)}
+                        title="Điều chỉnh dư nợ"
+                      >
+                        Điều chỉnh
+                      </Button>
+                      <Button
                         size="icon"
                         variant="ghost"
                         onClick={() => handleEdit(c)}
-                        title="Sửa"
+                        title="Sửa thông tin"
                       >
                         <Pencil className="w-4 h-4" />
                       </Button>
@@ -190,6 +223,12 @@ export function ContactList({ kind }: Props) {
         onOpenChange={(o) => !o && setPayingDebt(null)}
         kind={kind}
         contact={payingDebt}
+      />
+      <AdjustDebtDialog
+        open={adjustingDebt != null}
+        onOpenChange={(o) => !o && setAdjustingDebt(null)}
+        kind={kind}
+        contact={adjustingDebt}
       />
       <ContactOrdersDialog
         open={viewingOrders != null}

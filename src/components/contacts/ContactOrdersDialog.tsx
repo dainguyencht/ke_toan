@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { FileSpreadsheet } from "lucide-react";
+import { FileSpreadsheet, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,11 +12,15 @@ import { OrderDetail } from "@/components/orders/OrderDetail";
 import { EditCashDateDialog } from "@/components/cash/EditCashDateDialog";
 import { useOrdersByContact } from "@/hooks/useOrders";
 import { useContactCashFlow } from "@/hooks/useCash";
-import { useContact } from "@/hooks/useContacts";
+import {
+  useContact,
+  useDebtAdjustments,
+  useDeleteDebtAdjustment,
+} from "@/hooks/useContacts";
 import { useSettings } from "@/hooks/useSettings";
 import { exportContactStatementToExcel } from "@/lib/excelExport";
 import { cn, formatDateTime, formatVND } from "@/lib/utils";
-import type { Contact, ContactKind } from "@/db/contacts";
+import type { Contact, ContactKind, DebtAdjustment } from "@/db/contacts";
 import type { CashRow } from "@/db/cash";
 import type { OrderListRow } from "@/db/orders";
 import type { CashTransaction, OrderType } from "@/domain/types";
@@ -31,16 +35,21 @@ type Props = {
 
 type TimelineRow =
   | { rowKind: "order"; data: OrderListRow }
-  | { rowKind: "cash"; data: CashTransaction };
+  | { rowKind: "cash"; data: CashTransaction }
+  | { rowKind: "adjust"; data: DebtAdjustment };
 
 function rowCreatedAt(r: TimelineRow): string {
-  return r.rowKind === "order" ? r.data.created_at : r.data.created_at;
+  return r.data.created_at;
 }
 
 function valueOf(r: TimelineRow, kind: ContactKind): number {
   if (r.rowKind === "order") {
     // sale/purchase tăng nợ, return giảm nợ
     return r.data.type === "return" ? -r.data.total : r.data.total;
+  }
+  if (r.rowKind === "adjust") {
+    // Điều chỉnh: change_amount đã là delta dư nợ (dương = tăng nợ)
+    return r.data.change_amount;
   }
   // cash: chiều giảm nợ tùy loại đối tác
   const reducesDebt =
@@ -72,6 +81,9 @@ function rowTypeInfo(
     }
     return { label: ORDER_TYPE_LABEL[row.data.type], tone: "bg-blue-50 text-blue-700" };
   }
+  if (row.rowKind === "adjust") {
+    return { label: "Điều chỉnh nợ", tone: "bg-purple-50 text-purple-700" };
+  }
   const isPayment =
     (kind === "customer" && row.data.type === "in") ||
     (kind === "supplier" && row.data.type === "out");
@@ -98,8 +110,13 @@ export function ContactOrdersDialog({
     kind,
     contactId,
   );
+  const { data: adjustments = [], isLoading: loadingAdj } = useDebtAdjustments(
+    kind,
+    contactId,
+  );
   const { data: freshContact } = useContact(kind, contactId);
   const { data: settings } = useSettings();
+  const deleteAdjustment = useDeleteDebtAdjustment();
   const [exporting, setExporting] = useState(false);
 
   const orderByIdMap = useMemo(
@@ -112,6 +129,7 @@ export function ContactOrdersDialog({
     const all: TimelineRow[] = [
       ...orders.map<TimelineRow>((o) => ({ rowKind: "order", data: o })),
       ...cashFlow.map<TimelineRow>((c) => ({ rowKind: "cash", data: c })),
+      ...adjustments.map<TimelineRow>((a) => ({ rowKind: "adjust", data: a })),
     ];
     all.sort((a, b) => (rowCreatedAt(a) < rowCreatedAt(b) ? -1 : 1));
 
@@ -122,7 +140,7 @@ export function ContactOrdersDialog({
       return { row: r, value, balance: running };
     });
     return withBal.reverse();
-  }, [orders, cashFlow, kind]);
+  }, [orders, cashFlow, adjustments, kind]);
 
   if (!contact) return null;
 
@@ -145,7 +163,22 @@ export function ContactOrdersDialog({
     return s + (reducesDebt ? t.amount : -t.amount);
   }, 0);
 
-  const isLoading = loadingOrders || loadingCash;
+  const isLoading = loadingOrders || loadingCash || loadingAdj;
+
+  const handleDeleteAdjustment = async (adj: DebtAdjustment) => {
+    if (
+      !confirm(
+        `Xoá phiếu điều chỉnh "${adj.code}"?\nDư nợ sẽ được hoàn về giá trị trước khi điều chỉnh.`,
+      )
+    )
+      return;
+    try {
+      await deleteAdjustment.mutateAsync(adj.id);
+      toast.success("Đã xoá phiếu điều chỉnh");
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
 
   const handleExport = async () => {
     if (!contact) return;
@@ -209,30 +242,36 @@ export function ContactOrdersDialog({
                       <TH>Loại</TH>
                       <TH className="text-right">Giá trị</TH>
                       <TH className="text-right">Dư nợ</TH>
+                      <TH className="w-10"></TH>
                     </TR>
                   </THead>
                   <TBody>
                     {rowsWithBalance.map(({ row, value, balance }) => {
                       const isOrder = row.rowKind === "order";
+                      const isAdjust = row.rowKind === "adjust";
                       const code = isOrder
                         ? row.data.code
-                        : row.data.ref_table === "orders" && row.data.ref_id
-                          ? `→ ${orderByIdMap.get(row.data.ref_id)?.code ?? "—"}`
-                          : row.data.ref_table === "customers"
-                            ? "(Thu nợ)"
-                            : row.data.ref_table === "suppliers"
-                              ? "(Trả nợ)"
-                              : "—";
+                        : isAdjust
+                          ? row.data.code
+                          : row.data.ref_table === "orders" && row.data.ref_id
+                            ? `→ ${orderByIdMap.get(row.data.ref_id)?.code ?? "—"}`
+                            : row.data.ref_table === "customers"
+                              ? "(Thu nợ)"
+                              : row.data.ref_table === "suppliers"
+                                ? "(Trả nợ)"
+                                : "—";
                       const typeInfo = rowTypeInfo(row, kind);
                       const key = isOrder
                         ? `o-${row.data.id}`
-                        : `c-${row.data.id}`;
+                        : isAdjust
+                          ? `a-${row.data.id}`
+                          : `c-${row.data.id}`;
                       const orderRow = isOrder ? row.data : null;
 
                       const handleRowClick = () => {
                         if (isOrder && orderRow) {
                           setDetailId(orderRow.id);
-                        } else if (!isOrder) {
+                        } else if (row.rowKind === "cash") {
                           // Build CashRow với source_label cho dialog
                           const cash = row.data;
                           let sourceLabel: string | null = null;
@@ -246,23 +285,26 @@ export function ContactOrdersDialog({
                           }
                           setEditingCash({ ...cash, source_label: sourceLabel });
                         }
+                        // adjust: no detail dialog — use delete button at end of row
                       };
 
                       return (
                         <TR
                           key={key}
                           onClick={handleRowClick}
-                          className="cursor-pointer"
+                          className={cn(isAdjust ? "" : "cursor-pointer")}
                           title={
                             isOrder
                               ? "Click xem chi tiết phiếu"
-                              : "Click sửa giao dịch (số tiền + ngày giờ)"
+                              : isAdjust
+                                ? row.data.note ?? "Điều chỉnh dư nợ"
+                                : "Click sửa giao dịch (số tiền + ngày giờ)"
                           }
                         >
                           <TD
                             className={cn(
                               "font-mono text-xs",
-                              !isOrder && "text-neutral-500 italic",
+                              (!isOrder || isAdjust) && "text-neutral-500 italic",
                             )}
                           >
                             {code}
@@ -304,6 +346,18 @@ export function ContactOrdersDialog({
                             )}
                           >
                             {formatVND(balance)}
+                          </TD>
+                          <TD onClick={(e) => e.stopPropagation()}>
+                            {isAdjust ? (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => handleDeleteAdjustment(row.data)}
+                                title="Xoá phiếu điều chỉnh"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            ) : null}
                           </TD>
                         </TR>
                       );

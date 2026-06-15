@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
 import html2canvas from "html2canvas-pro";
 import jsPDF from "jspdf";
-import { FileText, Printer } from "lucide-react";
+import { FileText, FileType, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +19,7 @@ import { useOrderItems } from "@/hooks/useOrders";
 import { getActualPaidForOrder } from "@/db/orders";
 import { useSettings } from "@/hooks/useSettings";
 import { printInvoice } from "@/lib/invoicePrint";
+import { buildInvoiceDocxBlob } from "@/lib/invoiceWordExport";
 import { toISODate } from "@/lib/utils";
 import type { OrderListRow } from "@/db/orders";
 import { InvoiceLayout } from "./InvoiceLayout";
@@ -43,7 +43,7 @@ const PAPER_DIM_MM: Record<PaperSize, { short: number; long: number }> = {
 
 export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
   const previewRef = useRef<HTMLDivElement>(null);
-  const [exporting, setExporting] = useState<"pdf" | "print" | null>(null);
+  const [exporting, setExporting] = useState<"pdf" | "word" | "print" | null>(null);
   const [fontSize, setFontSize] = useState<number>(15);
   const [paperSize, setPaperSize] = useState<PaperSize>("A5");
   const [orientation, setOrientation] = useState<Orientation>("landscape");
@@ -127,13 +127,61 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
       });
       toast.success(`Đã lưu PDF: ${target}`, { id: toastId });
       try {
-        await openPath(target);
+        await invoke("open_path_in_os", { path: target });
       } catch {
         // ignore
       }
     } catch (err) {
       console.error("[invoice] PDF error:", err);
       toast.error(`Lỗi tạo PDF: ${(err as Error).message}`, { id: toastId });
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const exportWord = async () => {
+    setExporting("word");
+    const toastId = toast.loading("Đang tạo file Word...");
+    try {
+      const target = await save({
+        title: "Lưu hoá đơn Word",
+        defaultPath: `hoadon_${order.code}_${toISODate(new Date())}.docx`,
+        filters: [{ name: "Word", extensions: ["docx"] }],
+      });
+      if (!target) {
+        toast.dismiss(toastId);
+        return;
+      }
+      const blob = await buildInvoiceDocxBlob({
+        shopName,
+        shopAddress,
+        shopPhone,
+        shopBank,
+        orderDate: order.created_at,
+        customerName: customer?.name ?? order.partner_name ?? "",
+        customerPhone: customer?.phone ?? "",
+        customerAddress: customer?.address ?? "",
+        items,
+        orderTotal: order.total,
+        orderPaid: actualPaid || order.paid,
+        oldDebt,
+        currentDebt,
+        invoiceNote,
+      });
+      const buf = await blob.arrayBuffer();
+      await invoke("save_bytes", {
+        path: target,
+        bytes: Array.from(new Uint8Array(buf)),
+      });
+      toast.success(`Đã lưu Word: ${target}`, { id: toastId });
+      try {
+        await invoke("open_path_in_os", { path: target });
+      } catch {
+        // ignore
+      }
+    } catch (err) {
+      console.error("[invoice] Word error:", err);
+      toast.error(`Lỗi tạo Word: ${(err as Error).message}`, { id: toastId });
     } finally {
       setExporting(null);
     }
@@ -266,6 +314,10 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Đóng
+          </Button>
+          <Button variant="secondary" onClick={exportWord} disabled={busy}>
+            <FileType className="w-4 h-4" />
+            {exporting === "word" ? "Đang xuất..." : "Xuất Word"}
           </Button>
           <Button variant="secondary" onClick={exportPdf} disabled={busy}>
             <FileText className="w-4 h-4" />

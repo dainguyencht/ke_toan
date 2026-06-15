@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -9,7 +10,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useCreateContact, useUpdateContact } from "@/hooks/useContacts";
+import {
+  useCreateContact,
+  useCreateDebtAdjustment,
+  useUpdateContact,
+} from "@/hooks/useContacts";
 import type { Contact, ContactKind } from "@/db/contacts";
 import { toast } from "sonner";
 
@@ -25,9 +30,10 @@ type FormState = {
   phone: string;
   address: string;
   note: string;
+  debt: number;
 };
 
-const EMPTY: FormState = { name: "", phone: "", address: "", note: "" };
+const EMPTY: FormState = { name: "", phone: "", address: "", note: "", debt: 0 };
 
 const LABEL: Record<ContactKind, string> = {
   customer: "khách hàng",
@@ -39,6 +45,7 @@ export function ContactForm({ open, onOpenChange, kind, contact }: Props) {
   const [form, setForm] = useState<FormState>(EMPTY);
   const create = useCreateContact(kind);
   const update = useUpdateContact(kind);
+  const adjustDebt = useCreateDebtAdjustment();
 
   useEffect(() => {
     if (open) {
@@ -49,6 +56,7 @@ export function ContactForm({ open, onOpenChange, kind, contact }: Props) {
               phone: contact.phone ?? "",
               address: contact.address ?? "",
               note: contact.note ?? "",
+              debt: contact.debt_amount ?? 0,
             }
           : EMPTY,
       );
@@ -73,20 +81,31 @@ export function ContactForm({ open, onOpenChange, kind, contact }: Props) {
     };
 
     try {
+      let contactId: number;
       if (isEdit && contact) {
         await update.mutateAsync({ id: contact.id, input });
-        toast.success(`Đã cập nhật ${LABEL[kind]}`);
+        contactId = contact.id;
       } else {
-        await create.mutateAsync(input);
-        toast.success(`Đã thêm ${LABEL[kind]}`);
+        contactId = await create.mutateAsync(input);
       }
+      // Tạo phiếu điều chỉnh dư nợ nếu thay đổi
+      const currentDebt = contact?.debt_amount ?? 0;
+      if (form.debt !== currentDebt) {
+        await adjustDebt.mutateAsync({
+          kind,
+          contactId,
+          newDebt: form.debt,
+          note: isEdit ? "Điều chỉnh dư nợ" : "Dư nợ ban đầu",
+        });
+      }
+      toast.success(isEdit ? `Đã cập nhật ${LABEL[kind]}` : `Đã thêm ${LABEL[kind]}`);
       onOpenChange(false);
     } catch (err) {
       toast.error(`Lỗi: ${(err as Error).message}`);
     }
   };
 
-  const busy = create.isPending || update.isPending;
+  const busy = create.isPending || update.isPending || adjustDebt.isPending;
   const title = `${isEdit ? "Sửa" : "Thêm"} ${LABEL[kind]}`;
 
   return (
@@ -123,6 +142,20 @@ export function ContactForm({ open, onOpenChange, kind, contact }: Props) {
               onChange={(e) => set("note", e.target.value)}
             />
           </Field>
+          {!isEdit && (
+            <Field
+              label={`Dư nợ ban đầu (VNĐ) — nếu ${kind === "customer" ? "KH" : "NCC"} đã có nợ trước khi thêm vào app`}
+            >
+              <NumberInput
+                value={form.debt}
+                onChange={(n) => set("debt", n)}
+                placeholder="0"
+              />
+              <p className="text-xs text-neutral-500 mt-1">
+                Nhập số tiền nợ ban đầu nếu có. Tạo phiếu điều chỉnh, không ghi sổ quỹ. Sau này muốn điều chỉnh dùng nút máy tính trong danh sách.
+              </p>
+            </Field>
+          )}
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

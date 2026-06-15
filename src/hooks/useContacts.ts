@@ -1,10 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createContact,
+  createDebtAdjustment,
   deleteContact,
+  deleteDebtAdjustment,
   deleteDebtPayment,
   getContact,
+  getTotalDebt,
   listContacts,
+  listDebtAdjustments,
   payDebt,
   setContactDebt,
   updateContact,
@@ -18,6 +22,13 @@ export function useContacts(kind: ContactKind, search: string) {
   return useQuery({
     queryKey: [...KEY(kind), "list", search],
     queryFn: () => listContacts(kind, search),
+  });
+}
+
+export function useTotalDebt(kind: ContactKind) {
+  return useQuery({
+    queryKey: [...KEY(kind), "total-debt"],
+    queryFn: () => getTotalDebt(kind),
   });
 }
 
@@ -80,6 +91,52 @@ export function useDeleteDebtPayment() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["contacts"] });
       qc.invalidateQueries({ queryKey: ["cash"] });
+      qc.invalidateQueries({ queryKey: ["reports"] });
+    },
+  });
+}
+
+export function useDebtAdjustments(
+  kind: ContactKind,
+  contactId: number | null,
+) {
+  return useQuery({
+    queryKey: [...KEY(kind), "debt-adjustments", contactId],
+    queryFn: () =>
+      contactId ? listDebtAdjustments(kind, contactId) : Promise.resolve([]),
+    enabled: contactId != null,
+  });
+}
+
+export function useCreateDebtAdjustment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      kind,
+      contactId,
+      newDebt,
+      note,
+      createdAt,
+    }: {
+      kind: ContactKind;
+      contactId: number;
+      newDebt: number;
+      note?: string | null;
+      createdAt?: string;
+    }) => createDebtAdjustment(kind, contactId, newDebt, note, createdAt),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+      qc.invalidateQueries({ queryKey: ["reports"] });
+    },
+  });
+}
+
+export function useDeleteDebtAdjustment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => deleteDebtAdjustment(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contacts"] });
       qc.invalidateQueries({ queryKey: ["reports"] });
     },
   });
