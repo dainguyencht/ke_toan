@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { OrderDetail } from "@/components/orders/OrderDetail";
+import { AdjustDebtDialog } from "./AdjustDebtDialog";
 import { EditCashDateDialog } from "@/components/cash/EditCashDateDialog";
 import { useOrdersByContact } from "@/hooks/useOrders";
 import { useContactCashFlow } from "@/hooks/useCash";
@@ -100,6 +101,8 @@ export function ContactOrdersDialog({
 }: Props) {
   const [detailId, setDetailId] = useState<number | null>(null);
   const [editingCash, setEditingCash] = useState<CashRow | null>(null);
+  const [editingAdjustment, setEditingAdjustment] =
+    useState<DebtAdjustment | null>(null);
 
   const contactId = open && contact ? contact.id : null;
   const { data: orders = [], isLoading: loadingOrders } = useOrdersByContact(
@@ -284,20 +287,21 @@ export function ContactOrdersDialog({
                             sourceLabel = "Trả nợ NCC";
                           }
                           setEditingCash({ ...cash, source_label: sourceLabel });
+                        } else if (row.rowKind === "adjust") {
+                          setEditingAdjustment(row.data);
                         }
-                        // adjust: no detail dialog — use delete button at end of row
                       };
 
                       return (
                         <TR
                           key={key}
                           onClick={handleRowClick}
-                          className={cn(isAdjust ? "" : "cursor-pointer")}
+                          className="cursor-pointer"
                           title={
                             isOrder
                               ? "Click xem chi tiết phiếu"
                               : isAdjust
-                                ? row.data.note ?? "Điều chỉnh dư nợ"
+                                ? "Click sửa phiếu điều chỉnh"
                                 : "Click sửa giao dịch (số tiền + ngày giờ)"
                           }
                         >
@@ -421,6 +425,14 @@ export function ContactOrdersDialog({
         open={editingCash != null}
         onOpenChange={(o) => !o && setEditingCash(null)}
         transaction={editingCash}
+      />
+
+      <AdjustDebtDialog
+        open={editingAdjustment != null}
+        onOpenChange={(o) => !o && setEditingAdjustment(null)}
+        kind={kind}
+        contact={contact}
+        adjustment={editingAdjustment}
       />
     </>
   );

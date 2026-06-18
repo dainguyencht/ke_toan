@@ -237,6 +237,44 @@ export async function listDebtAdjustments(
   );
 }
 
+/** Sửa phiếu điều chỉnh (new_debt / note / created_at). Auto sync contact.debt. */
+export async function updateDebtAdjustment(
+  id: number,
+  patch: {
+    newDebt?: number;
+    note?: string | null;
+    createdAt?: string;
+  },
+): Promise<void> {
+  const db = await getDb();
+  const rows = await db.select<DebtAdjustment[]>(
+    "SELECT * FROM debt_adjustments WHERE id = ?",
+    [id],
+  );
+  if (rows.length === 0) throw new Error("Không tìm thấy phiếu điều chỉnh");
+  const adj = rows[0];
+
+  const newDebt = patch.newDebt ?? adj.new_debt;
+  const newChange = newDebt - adj.old_debt;
+  const changeDiff = newChange - adj.change_amount;
+  const note = patch.note !== undefined ? patch.note : adj.note;
+  const createdAt = patch.createdAt ?? adj.created_at;
+
+  if (changeDiff !== 0) {
+    const table = TABLE[adj.kind];
+    await db.execute(
+      `UPDATE ${table} SET debt_amount = debt_amount + ? WHERE id = ?`,
+      [changeDiff, adj.contact_id],
+    );
+  }
+  await db.execute(
+    `UPDATE debt_adjustments
+     SET new_debt = ?, change_amount = ?, note = ?, created_at = ?
+     WHERE id = ?`,
+    [newDebt, newChange, note, createdAt, id],
+  );
+}
+
 /** Xoá phiếu điều chỉnh — đảo ngược change_amount khỏi dư nợ contact. */
 export async function deleteDebtAdjustment(id: number): Promise<void> {
   const db = await getDb();

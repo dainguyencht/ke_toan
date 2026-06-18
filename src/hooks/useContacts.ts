@@ -12,6 +12,7 @@ import {
   payDebt,
   setContactDebt,
   updateContact,
+  updateDebtAdjustment,
   type ContactInput,
   type ContactKind,
 } from "@/db/contacts";
@@ -135,6 +136,23 @@ export function useDeleteDebtAdjustment() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => deleteDebtAdjustment(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+      qc.invalidateQueries({ queryKey: ["reports"] });
+    },
+  });
+}
+
+export function useUpdateDebtAdjustment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      patch,
+    }: {
+      id: number;
+      patch: { newDebt?: number; note?: string | null; createdAt?: string };
+    }) => updateDebtAdjustment(id, patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["contacts"] });
       qc.invalidateQueries({ queryKey: ["reports"] });
