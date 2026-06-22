@@ -55,7 +55,7 @@ export type SaleLine = {
  * cancelled + cash linked). Gọi sau mọi mutation create/cancel để debt luôn
  * khớp với timeline — chống data lệch do edge case (overpay cancel...).
  */
-async function recomputeAndSetContactDebt(
+export async function recomputeAndSetContactDebt(
   kind: "customer" | "supplier",
   contactId: number,
 ): Promise<void> {

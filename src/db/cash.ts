@@ -1,6 +1,7 @@
 import { getDb } from "./client";
 import { dbDateTime } from "@/lib/utils";
 import type { CashTransaction } from "@/domain/types";
+import { recomputeAndSetContactDebt } from "./orders";
 
 export type CashFilter = {
   type?: "in" | "out" | "all";
@@ -363,17 +364,65 @@ export async function countTransactionsByCategory(
   return rows[0]?.c ?? 0;
 }
 
+/**
+ * Xoá phiếu thu/chi — tự đảo ngược tác động tuỳ loại:
+ * - Nhập tay (ref_table=NULL): chỉ xoá row.
+ * - Thu/trả nợ (ref_table='customers'|'suppliers'): cộng lại debt cho contact + xoá.
+ * - Cash từ đơn (ref_table='orders'): giảm order.paid theo amount, recompute
+ *   contact debt, xoá row. Đơn hàng KHÔNG bị huỷ — chỉ điều chỉnh phần tiền đã thu/chi.
+ */
 export async function deleteCashTransaction(id: number): Promise<void> {
   const db = await getDb();
-  // Chỉ cho xóa các giao dịch nhập tay (không có ref_table='orders')
-  const rows = await db.select<{ ref_table: string | null }[]>(
-    "SELECT ref_table FROM cash_transactions WHERE id = ?",
+  const rows = await db.select<
+    {
+      type: "in" | "out";
+      amount: number;
+      ref_table: string | null;
+      ref_id: number | null;
+    }[]
+  >(
+    "SELECT type, amount, ref_table, ref_id FROM cash_transactions WHERE id = ?",
     [id],
   );
-  if (rows[0]?.ref_table) {
-    throw new Error(
-      "Không thể xóa giao dịch tự sinh từ đơn hàng. Hãy hủy đơn hàng tương ứng.",
+  if (rows.length === 0) throw new Error("Không tìm thấy giao dịch");
+  const tx = rows[0];
+
+  if (tx.ref_table === "customers" || tx.ref_table === "suppliers") {
+    if (tx.ref_id == null) throw new Error("Giao dịch không hợp lệ (thiếu ref_id)");
+    // Hoàn debt: trả nợ KH/NCC thì cộng lại
+    await db.execute(
+      `UPDATE ${tx.ref_table} SET debt_amount = debt_amount + ? WHERE id = ?`,
+      [tx.amount, tx.ref_id],
     );
+    await db.execute("DELETE FROM cash_transactions WHERE id = ?", [id]);
+    return;
   }
+
+  if (tx.ref_table === "orders" && tx.ref_id != null) {
+    // Lấy customer/supplier liên quan để recompute sau
+    const orderRows = await db.select<
+      { customer_id: number | null; supplier_id: number | null; paid: number }[]
+    >(
+      "SELECT customer_id, supplier_id, paid FROM orders WHERE id = ?",
+      [tx.ref_id],
+    );
+    if (orderRows[0]) {
+      const o = orderRows[0];
+      const newPaid = Math.max(0, o.paid - tx.amount);
+      await db.execute("UPDATE orders SET paid = ? WHERE id = ?", [
+        newPaid,
+        tx.ref_id,
+      ]);
+      await db.execute("DELETE FROM cash_transactions WHERE id = ?", [id]);
+      if (o.customer_id != null) {
+        await recomputeAndSetContactDebt("customer", o.customer_id);
+      } else if (o.supplier_id != null) {
+        await recomputeAndSetContactDebt("supplier", o.supplier_id);
+      }
+      return;
+    }
+  }
+
+  // Manual (ref_table=NULL) hoặc edge case → chỉ xoá
   await db.execute("DELETE FROM cash_transactions WHERE id = ?", [id]);
 }

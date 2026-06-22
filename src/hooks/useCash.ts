@@ -98,7 +98,13 @@ export function useDeleteCashTransaction() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => deleteCashTransaction(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY });
+      // Có thể đã đổi order.paid hoặc contact.debt → invalidate luôn
+      qc.invalidateQueries({ queryKey: ["orders"] });
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+      qc.invalidateQueries({ queryKey: ["reports"] });
+    },
   });
 }
 

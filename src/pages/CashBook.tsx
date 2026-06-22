@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CashTransactionForm } from "@/components/cash/CashTransactionForm";
 import { CategoryManager } from "@/components/cash/CategoryManager";
 import { EditCashDateDialog } from "@/components/cash/EditCashDateDialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   PeriodFilter,
   initialPeriod,
@@ -18,7 +19,6 @@ import {
   useCashTransactions,
   useDeleteCashTransaction,
 } from "@/hooks/useCash";
-import { useDeleteDebtPayment } from "@/hooks/useContacts";
 import { cn, formatDateTime, formatVND } from "@/lib/utils";
 import type { CashFilter, CashRow } from "@/db/cash";
 import { toast } from "sonner";
@@ -39,6 +39,11 @@ export default function CashBook() {
   const [openForm, setOpenForm] = useState(false);
   const [editTx, setEditTx] = useState<CashRow | null>(null);
   const [dateEditTx, setDateEditTx] = useState<CashRow | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{
+    tx: CashRow;
+    title: string;
+    message: string;
+  } | null>(null);
 
   const filter = useMemo<CashFilter>(() => {
     const { from, to } = periodToDates(period);
@@ -49,23 +54,33 @@ export default function CashBook() {
   const { data: transactions, isLoading } = useCashTransactions(filter);
   const { data: allTime } = useCashSummary({});
   const del = useDeleteCashTransaction();
-  const delDebt = useDeleteDebtPayment();
 
-  const handleDelete = async (t: CashRow) => {
-    const isDebtPayment =
-      t.ref_table === "customers" || t.ref_table === "suppliers";
+  const handleDelete = (t: CashRow) => {
     const label = `${t.category} - ${formatVND(t.amount)}`;
-    const msg = isDebtPayment
-      ? `Xoá phiếu ${t.type === "in" ? "thu" : "trả"} nợ "${label}"?\nCông nợ sẽ được hoàn lại.`
-      : `Xóa giao dịch "${label}"?`;
-    if (!confirm(msg)) return;
+    let title: string;
+    let message: string;
+    if (t.ref_table === "customers" || t.ref_table === "suppliers") {
+      title = `Xoá phiếu ${t.type === "in" ? "thu" : "trả"} nợ?`;
+      message = `${label}\nCông nợ sẽ được hoàn lại.`;
+    } else if (t.ref_table === "orders") {
+      title = `Xoá phiếu ${t.type === "in" ? "thu" : "chi"} từ đơn hàng?`;
+      message =
+        `${label}\n` +
+        `Đơn hàng ${t.source_label ?? ""} sẽ giảm "Đã thanh toán" tương ứng.\n` +
+        `Công nợ KH/NCC sẽ tự đồng bộ. Đơn hàng KHÔNG bị huỷ.`;
+    } else {
+      title = "Xoá giao dịch?";
+      message = label;
+    }
+    setPendingDelete({ tx: t, title, message });
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
     try {
-      if (isDebtPayment) {
-        await delDebt.mutateAsync(t.id);
-      } else {
-        await del.mutateAsync(t.id);
-      }
+      await del.mutateAsync(pendingDelete.tx.id);
       toast.success("Đã xóa");
+      setPendingDelete(null);
     } catch (err) {
       toast.error((err as Error).message);
     }
@@ -229,18 +244,14 @@ export default function CashBook() {
                       >
                         <Pencil className="w-4 h-4" />
                       </Button>
-                      {(t.ref_table == null ||
-                        t.ref_table === "customers" ||
-                        t.ref_table === "suppliers") && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => handleDelete(t)}
-                          title="Xóa"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      )}
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => handleDelete(t)}
+                        title="Xóa"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
                     </div>
                   </TD>
                 </TR>
@@ -265,6 +276,16 @@ export default function CashBook() {
         open={dateEditTx != null}
         onOpenChange={(v) => !v && setDateEditTx(null)}
         transaction={dateEditTx}
+      />
+      <ConfirmDialog
+        open={pendingDelete != null}
+        onOpenChange={(v) => !v && setPendingDelete(null)}
+        title={pendingDelete?.title ?? "Xoá giao dịch?"}
+        message={pendingDelete?.message}
+        confirmLabel="Xoá"
+        destructive
+        busy={del.isPending}
+        onConfirm={confirmDelete}
       />
     </div>
   );
