@@ -227,6 +227,12 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
             <div className="grid grid-cols-2 gap-6 text-sm pt-2 border-t border-neutral-200">
               <div />
               <div className="space-y-1.5">
+                {order.discount > 0 && (
+                  <>
+                    <Row label="Tiền hàng" value={formatVND(order.subtotal)} />
+                    <Row label="Chiết khấu" value={`− ${formatVND(order.discount)}`} />
+                  </>
+                )}
                 <Row label="Tổng tiền" value={formatVND(order.total)} bold />
                 <Row
                   label={order.type === "sale" ? "Đã thu" : "Đã trả"}

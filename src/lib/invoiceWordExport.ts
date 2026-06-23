@@ -35,6 +35,8 @@ export type DocxInvoiceInput = {
   customerPhone: string;
   customerAddress: string;
   items: Item[];
+  orderSubtotal?: number;
+  orderDiscount?: number;
   orderTotal: number;
   orderPaid: number;
   oldDebt: number;
@@ -315,35 +317,48 @@ export async function buildInvoiceDocxBlob(d: DocxInvoiceInput): Promise<Blob> {
     });
   });
 
-  const totalRow = new TableRow({
-    children: [
-      new TableCell({
-        columnSpan: 7,
-        borders: ALL_BORDERS,
-        verticalAlign: VerticalAlign.CENTER,
-        children: [
-          pText("Cộng tiền hàng:", {
-            bold: true,
-            size: 20,
-            align: AlignmentType.RIGHT,
-          }),
-        ],
-      }),
-      cell([
-        pText(formatNumber(d.orderTotal, 0), {
-          bold: true,
-          size: 20,
-          align: AlignmentType.RIGHT,
+  const subtotal = d.orderSubtotal ?? d.orderTotal;
+  const discount = d.orderDiscount ?? 0;
+  const hasDiscount = discount > 0;
+
+  const buildSummaryRow = (label: string, value: string) =>
+    new TableRow({
+      children: [
+        new TableCell({
+          columnSpan: 7,
+          borders: ALL_BORDERS,
+          verticalAlign: VerticalAlign.CENTER,
+          children: [
+            pText(label, {
+              bold: true,
+              size: 20,
+              align: AlignmentType.RIGHT,
+            }),
+          ],
         }),
-      ]),
-    ],
-  });
+        cell([
+          pText(value, { bold: true, size: 20, align: AlignmentType.RIGHT }),
+        ]),
+      ],
+    });
+
+  const subtotalRow = buildSummaryRow(
+    "Cộng tiền hàng:",
+    formatNumber(subtotal, 0),
+  );
+  const tableRows = [itemsHeaderRow, ...itemRows, subtotalRow];
+  if (hasDiscount) {
+    tableRows.push(buildSummaryRow("Chiết khấu:", `− ${formatNumber(discount, 0)}`));
+    tableRows.push(
+      buildSummaryRow("Tổng tiền sau giảm giá:", formatNumber(d.orderTotal, 0)),
+    );
+  }
 
   const itemsTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     layout: TableLayoutType.FIXED,
     columnWidths: [500, 1300, 2300, 1100, 900, 1000, 1300, 1600],
-    rows: [itemsHeaderRow, ...itemRows, totalRow],
+    rows: tableRows,
   });
 
   // === Summary ===

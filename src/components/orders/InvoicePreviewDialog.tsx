@@ -162,6 +162,8 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
         customerPhone: customer?.phone ?? "",
         customerAddress: customer?.address ?? "",
         items,
+        orderSubtotal: order.subtotal,
+        orderDiscount: order.discount,
         orderTotal: order.total,
         orderPaid: actualPaid || order.paid,
         oldDebt,
@@ -201,6 +203,8 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
           customerPhone: customer?.phone ?? "",
           customerAddress: customer?.address ?? "",
           items,
+          orderSubtotal: order.subtotal,
+          orderDiscount: order.discount,
           orderTotal: order.total,
           orderPaid: actualPaid || order.paid,
           oldDebt,
@@ -299,6 +303,8 @@ export function InvoicePreviewDialog({ order, open, onOpenChange }: Props) {
               customerPhone={customer?.phone ?? ""}
               customerAddress={customer?.address ?? ""}
               items={items}
+              orderSubtotal={order.subtotal}
+              orderDiscount={order.discount}
               orderTotal={order.total}
               orderPaid={actualPaid || order.paid}
               oldDebt={oldDebt}

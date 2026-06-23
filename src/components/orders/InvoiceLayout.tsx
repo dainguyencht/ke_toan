@@ -13,6 +13,10 @@ type Props = {
   items: Array<
     OrderItem & { sku: string; product_name: string; base_unit: string }
   >;
+  /** Tổng tiền hàng (= subtotal trước chiết khấu). Mặc định = orderTotal. */
+  orderSubtotal?: number;
+  /** Chiết khấu cho cả phiếu. Mặc định 0. */
+  orderDiscount?: number;
   orderTotal: number;
   orderPaid: number;
   oldDebt: number;
@@ -32,6 +36,8 @@ export function InvoiceLayout({
   customerPhone,
   customerAddress,
   items,
+  orderSubtotal,
+  orderDiscount,
   orderTotal,
   orderPaid,
   oldDebt,
@@ -39,6 +45,9 @@ export function InvoiceLayout({
   invoiceNote,
   fontSize,
 }: Props) {
+  const subtotal = orderSubtotal ?? orderTotal;
+  const discount = orderDiscount ?? 0;
+  const hasDiscount = discount > 0;
   const displayItems = items;
 
   return (
@@ -156,8 +165,20 @@ export function InvoiceLayout({
           })}
           <tr className="inv-total-row">
             <td colSpan={7}>Cộng tiền hàng:</td>
-            <td className="num">{formatNumber(orderTotal, 0)}</td>
+            <td className="num">{formatNumber(subtotal, 0)}</td>
           </tr>
+          {hasDiscount && (
+            <>
+              <tr className="inv-total-row">
+                <td colSpan={7}>Chiết khấu:</td>
+                <td className="num">− {formatNumber(discount, 0)}</td>
+              </tr>
+              <tr className="inv-total-row">
+                <td colSpan={7}>Tổng tiền sau giảm giá:</td>
+                <td className="num">{formatNumber(orderTotal, 0)}</td>
+              </tr>
+            </>
+          )}
         </tbody>
       </table>
 

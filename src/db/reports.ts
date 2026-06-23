@@ -39,14 +39,18 @@ export async function getDashboardStats(lowStockThreshold = 5): Promise<Dashboar
          AND date(created_at) >= date('now','localtime','-6 days')`,
     ),
     db.select<{ profit: number }[]>(
-      `SELECT COALESCE(SUM(i.total) - SUM(i.qty * i.cost), 0) AS profit
+      `SELECT COALESCE(
+         SUM(i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)))
+         - SUM(i.qty * i.cost), 0) AS profit
        FROM order_items i
        JOIN orders o ON o.id = i.order_id
        WHERE o.type='sale' AND o.status != 'cancelled'
          AND date(o.created_at) = date('now','localtime')`,
     ),
     db.select<{ profit: number }[]>(
-      `SELECT COALESCE(SUM(i.total) - SUM(i.qty * i.cost), 0) AS profit
+      `SELECT COALESCE(
+         SUM(i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)))
+         - SUM(i.qty * i.cost), 0) AS profit
        FROM order_items i
        JOIN orders o ON o.id = i.order_id
        WHERE o.type='sale' AND o.status != 'cancelled'
@@ -111,7 +115,7 @@ export async function getTopSellingProducts(
        v.sku  AS sku,
        p.unit AS base_unit,
        SUM(i.qty * COALESCE(i.unit_factor, 1)) AS total_qty,
-       SUM(i.total) AS total_revenue
+       SUM(i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0))) AS total_revenue
      FROM order_items i
      JOIN orders o           ON o.id = i.order_id
      JOIN product_variants v ON v.id = i.variant_id
@@ -204,19 +208,23 @@ export type ProfitTotal = {
   profit: number;
 };
 
-/** Lãi gộp tích lũy (từ trước đến giờ) — trừ hàng KH trả lại để khớp với P&L. */
+/** Lãi gộp tích lũy (từ trước đến giờ) — trừ hàng KH trả lại + chiết khấu. */
 export async function getProfitTotal(): Promise<ProfitTotal> {
   const db = await getDb();
   const rows = await db.select<ProfitTotal[]>(
     `SELECT
-       COALESCE(SUM(CASE WHEN o.type='sale' THEN  i.total
-                         WHEN o.type='return' THEN -i.total
+       COALESCE(SUM(CASE WHEN o.type='sale' THEN
+                           i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0))
+                         WHEN o.type='return' THEN
+                           -i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0))
                          ELSE 0 END), 0) AS revenue,
        COALESCE(SUM(CASE WHEN o.type='sale' THEN  i.qty * i.cost
                          WHEN o.type='return' THEN -i.qty * i.cost
                          ELSE 0 END), 0) AS cost,
-       COALESCE(SUM(CASE WHEN o.type='sale' THEN  i.total - i.qty * i.cost
-                         WHEN o.type='return' THEN -(i.total - i.qty * i.cost)
+       COALESCE(SUM(CASE WHEN o.type='sale' THEN
+                           i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * i.cost
+                         WHEN o.type='return' THEN
+                           -(i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * i.cost)
                          ELSE 0 END), 0) AS profit
      FROM order_items i
      JOIN orders o ON o.id = i.order_id
@@ -243,7 +251,8 @@ export async function getProfitByProduct(
 ): Promise<ProfitReport[]> {
   const db = await getDb();
   // Sale items: cộng dương. Return items (KH trả lại): trừ.
-  // Cần qty/revenue/cost ròng theo từng SP để khớp với P&L.
+  // Revenue đã trừ chiết khấu theo tỉ lệ: i.total * (o.total / o.subtotal).
+  // Với đơn không có chiết khấu, o.total = o.subtotal → ratio = 1 → i.total nguyên.
   return await db.select<ProfitReport[]>(
     `SELECT
        p.id   AS product_id,
@@ -253,14 +262,18 @@ export async function getProfitByProduct(
        SUM(CASE WHEN o.type='sale' THEN  i.qty * COALESCE(i.unit_factor, 1)
                 WHEN o.type='return' THEN -i.qty * COALESCE(i.unit_factor, 1)
                 ELSE 0 END) AS qty_sold,
-       SUM(CASE WHEN o.type='sale' THEN  i.total
-                WHEN o.type='return' THEN -i.total
+       SUM(CASE WHEN o.type='sale' THEN
+                  i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0))
+                WHEN o.type='return' THEN
+                  -i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0))
                 ELSE 0 END) AS revenue,
        SUM(CASE WHEN o.type='sale' THEN  i.qty * i.cost
                 WHEN o.type='return' THEN -i.qty * i.cost
                 ELSE 0 END) AS cost_total,
-       SUM(CASE WHEN o.type='sale' THEN  i.total - i.qty * i.cost
-                WHEN o.type='return' THEN -(i.total - i.qty * i.cost)
+       SUM(CASE WHEN o.type='sale' THEN
+                  i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * i.cost
+                WHEN o.type='return' THEN
+                  -(i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * i.cost)
                 ELSE 0 END) AS profit
      FROM order_items i
      JOIN orders o           ON o.id = i.order_id
@@ -375,8 +388,9 @@ export async function getProfitLoss(
     incomeRows,
   ] = await Promise.all([
     db.select<{ revenue: number; discount: number }[]>(
+      // revenue = SUM(subtotal) (gross, trước chiết khấu) để (1) - (2) - returns = (3) Doanh thu thuần
       `SELECT
-         COALESCE(SUM(total), 0)    AS revenue,
+         COALESCE(SUM(subtotal), 0) AS revenue,
          COALESCE(SUM(discount), 0) AS discount
        FROM orders
        WHERE type='sale' AND status != 'cancelled'

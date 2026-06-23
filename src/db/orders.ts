@@ -18,6 +18,8 @@ export type PurchaseInput = {
   supplier_id: number | null;
   note?: string | null;
   paid: number; // số đã trả NCC
+  /** Chiết khấu cho cả phiếu (mặc định 0). total = subtotal − discount. */
+  discount?: number;
   items: PurchaseLine[];
   /** Ngày giờ phiếu dạng 'YYYY-MM-DD HH:MM:SS'. Bỏ trống = thời điểm hiện tại. */
   created_at?: string;
@@ -36,6 +38,8 @@ export type SaleInput = {
   customer_id: number | null;
   note?: string | null;
   paid: number; // số tiền KH đã thanh toán
+  /** Chiết khấu cho cả phiếu (mặc định 0). total = subtotal − discount. */
+  discount?: number;
   items: SaleLine[];
   /** Ngày giờ phiếu dạng 'YYYY-MM-DD HH:MM:SS'. Bỏ trống = thời điểm hiện tại. */
   created_at?: string;
@@ -133,7 +137,8 @@ export async function createPurchase(input: PurchaseInput): Promise<number> {
 
   const db = await getDb();
   const subtotal = input.items.reduce((s, l) => s + l.qty * l.price, 0);
-  const total = subtotal; // chưa có discount cho phiếu nhập
+  const discount = Math.max(0, Math.min(input.discount ?? 0, subtotal));
+  const total = subtotal - discount;
   // Cho phép trả > total nếu có NCC (phần dư trừ vào nợ cũ NCC).
   // Không có NCC thì cap tại total để tránh tiền treo.
   const cashOut = input.supplier_id ? input.paid : Math.min(input.paid, total);
@@ -159,11 +164,12 @@ export async function createPurchase(input: PurchaseInput): Promise<number> {
   const orderResult = await db.execute(
     `INSERT INTO orders
        (code, type, supplier_id, subtotal, discount, total, paid, status, note, created_at, snapshot_debt)
-     VALUES (?, 'purchase', ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, 'purchase', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       code,
       input.supplier_id,
       subtotal,
+      discount,
       total,
       paid,
       status,
@@ -255,7 +261,8 @@ export async function createSale(input: SaleInput): Promise<number> {
 
   const db = await getDb();
   const subtotal = input.items.reduce((s, l) => s + l.qty * l.price, 0);
-  const total = subtotal;
+  const discount = Math.max(0, Math.min(input.discount ?? 0, subtotal));
+  const total = subtotal - discount;
   // Cho phép thu > total nếu có KH (phần dư trừ vào nợ cũ KH).
   // Không có KH thì cap tại total để tránh tiền treo.
   const cashIn = input.customer_id ? input.paid : Math.min(input.paid, total);
@@ -293,11 +300,12 @@ export async function createSale(input: SaleInput): Promise<number> {
   const orderResult = await db.execute(
     `INSERT INTO orders
        (code, type, customer_id, subtotal, discount, total, paid, status, note, created_at, snapshot_debt)
-     VALUES (?, 'sale', ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, 'sale', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       code,
       input.customer_id,
       subtotal,
+      discount,
       total,
       paid,
       status,

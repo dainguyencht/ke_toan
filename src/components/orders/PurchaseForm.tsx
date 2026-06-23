@@ -61,6 +61,7 @@ export function PurchaseForm({
 }: Props) {
   const [supplierId, setSupplierId] = useState<number | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
+  const [discount, setDiscount] = useState(0);
   const [paid, setPaid] = useState("0");
   const [note, setNote] = useState("");
   const [orderDate, setOrderDate] = useState(() =>
@@ -78,6 +79,7 @@ export function PurchaseForm({
   const reset = () => {
     setSupplierId(null);
     setLines([]);
+    setDiscount(0);
     setPaid("0");
     setNote("");
     setOrderDate(toDateTimeLocalValue(new Date()));
@@ -97,6 +99,7 @@ export function PurchaseForm({
       .then(({ order, lines: editLines }) => {
         setEditingCode(order.code);
         setSupplierId(order.supplier_id);
+        setDiscount(order.discount ?? 0);
         setPaid(String(order.paid));
         setNote(order.note ?? "");
         setOrderDate(toDateTimeLocalValue(order.created_at));
@@ -167,10 +170,12 @@ export function PurchaseForm({
     setLines((prev) => prev.filter((_, i) => i !== idx));
 
   const subtotal = lines.reduce((s, l) => s + l.qty * l.price, 0);
+  const discountClamped = Math.max(0, Math.min(discount, subtotal));
+  const total = subtotal - discountClamped;
   const paidNum = Number(paid) || 0;
-  // Tổng nợ NCC sau giao dịch: oldDebt + (subtotal - paid).
+  // Tổng nợ NCC sau giao dịch: oldDebt + (total - paid).
   // > 0: mình còn nợ NCC; < 0: NCC còn nợ mình (mình trả dư).
-  const newDebt = oldDebt + subtotal - paidNum;
+  const newDebt = oldDebt + total - paidNum;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,11 +187,11 @@ export function PurchaseForm({
       toast.error("Số lượng các dòng phải > 0");
       return;
     }
-    if (paidNum < subtotal && !supplierId) {
+    if (paidNum < total && !supplierId) {
       toast.error("Có công nợ nhưng chưa chọn NCC. Hoặc chọn NCC, hoặc trả đủ.");
       return;
     }
-    if (paidNum > subtotal && !supplierId) {
+    if (paidNum > total && !supplierId) {
       toast.error(
         "Trả nhiều hơn tổng đơn cần chọn NCC (để trừ vào nợ cũ). Hoặc trả đúng = tổng.",
       );
@@ -209,6 +214,7 @@ export function PurchaseForm({
           supplier_id: supplierId,
           note: note.trim() || null,
           paid: paidNum,
+          discount: discountClamped,
           created_at: dateTimeLocalToDb(orderDate),
           items: lines.map((l) => {
             const u = l.units.find((x) => x.id === l.unit_id)!;
@@ -236,6 +242,7 @@ export function PurchaseForm({
         supplier_id: supplierId,
         note: note.trim() || null,
         paid: paidNum,
+        discount: discountClamped,
         created_at: dateTimeLocalToDb(orderDate),
         items: lines.map((l) => {
           const u = l.units.find((x) => x.id === l.unit_id)!;
@@ -413,9 +420,21 @@ export function PurchaseForm({
               </div>
             </div>
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between font-medium text-base">
-                <span>Tổng tiền:</span>
+              <div className="flex justify-between text-neutral-600">
+                <span>Tiền hàng:</span>
                 <span>{formatVND(subtotal)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="shrink-0">Chiết khấu:</Label>
+                <NumberInput
+                  value={discount}
+                  onChange={(n) => setDiscount(n)}
+                  className="text-right max-w-40 h-8"
+                />
+              </div>
+              <div className="flex justify-between font-medium text-base border-t pt-1.5">
+                <span>Tổng tiền:</span>
+                <span>{formatVND(total)}</span>
               </div>
               {supplierId && (
                 <div className="flex justify-between text-neutral-500">
@@ -453,10 +472,10 @@ export function PurchaseForm({
                   </span>
                 </div>
               )}
-              {!supplierId && paidNum < subtotal && (
+              {!supplierId && paidNum < total && (
                 <div className="flex justify-between text-amber-600 font-medium">
                   <span>Công nợ phải trả:</span>
-                  <span>{formatVND(subtotal - paidNum)}</span>
+                  <span>{formatVND(total - paidNum)}</span>
                 </div>
               )}
             </div>
@@ -470,8 +489,8 @@ export function PurchaseForm({
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => setPaid(String(subtotal + oldDebt))}
-                disabled={subtotal === 0}
+                onClick={() => setPaid(String(total + oldDebt))}
+                disabled={total === 0}
                 title="Trả đủ tiền hàng + nợ cũ NCC"
               >
                 Trả cả nợ cũ
@@ -480,8 +499,8 @@ export function PurchaseForm({
             <Button
               type="button"
               variant="secondary"
-              onClick={() => setPaid(String(subtotal))}
-              disabled={subtotal === 0}
+              onClick={() => setPaid(String(total))}
+              disabled={total === 0}
             >
               Trả đủ
             </Button>

@@ -17,6 +17,8 @@ export type InvoicePrintData = {
   items: Array<
     OrderItem & { sku: string; product_name: string; base_unit: string }
   >;
+  orderSubtotal?: number;
+  orderDiscount?: number;
   orderTotal: number;
   orderPaid: number;
   oldDebt: number;

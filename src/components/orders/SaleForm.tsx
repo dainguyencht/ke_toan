@@ -54,6 +54,7 @@ type Props = {
 export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) {
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
+  const [discount, setDiscount] = useState(0);
   const [paid, setPaid] = useState("0");
   const [note, setNote] = useState("");
   const [orderDate, setOrderDate] = useState(() =>
@@ -71,6 +72,7 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
   const reset = () => {
     setCustomerId(null);
     setLines([]);
+    setDiscount(0);
     setPaid("0");
     setNote("");
     setOrderDate(toDateTimeLocalValue(new Date()));
@@ -89,6 +91,7 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
       .then(({ order, lines: editLines }) => {
         setEditingCode(order.code);
         setCustomerId(order.customer_id);
+        setDiscount(order.discount ?? 0);
         setPaid(String(order.paid));
         setNote(order.note ?? "");
         setOrderDate(toDateTimeLocalValue(order.created_at));
@@ -164,10 +167,12 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
     setLines((prev) => prev.filter((_, i) => i !== idx));
 
   const subtotal = lines.reduce((s, l) => s + l.qty * l.price, 0);
+  const discountClamped = Math.max(0, Math.min(discount, subtotal));
+  const total = subtotal - discountClamped;
   const paidNum = Number(paid) || 0;
-  // Tổng nợ sau giao dịch: oldDebt + (subtotal - paid).
+  // Tổng nợ sau giao dịch: oldDebt + (total - paid).
   // > 0: KH còn nợ; < 0: KH dư tiền (mình nợ KH).
-  const newDebt = oldDebt + subtotal - paidNum;
+  const newDebt = oldDebt + total - paidNum;
 
   // Tính oversold: convert qty về base unit để so với tồn
   const oversold = lines.filter((l) => {
@@ -190,11 +195,11 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
       const names = oversold.map((l) => l.product_name).join(", ");
       if (!confirm(`Tồn không đủ cho: ${names}. Vẫn tiếp tục bán âm tồn?`)) return;
     }
-    if (paidNum < subtotal && !customerId) {
+    if (paidNum < total && !customerId) {
       toast.error("Có công nợ nhưng chưa chọn khách. Hoặc chọn KH, hoặc thu đủ.");
       return;
     }
-    if (paidNum > subtotal && !customerId) {
+    if (paidNum > total && !customerId) {
       toast.error(
         "Thu nhiều hơn tổng đơn cần chọn KH (để trừ vào nợ cũ). Hoặc thu đúng = tổng.",
       );
@@ -228,6 +233,7 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
           customer_id: customerId,
           note: note.trim() || null,
           paid: paidNum,
+          discount: discountClamped,
           items: itemsPayload,
           created_at: dateTimeLocalToDb(orderDate),
         });
@@ -245,6 +251,7 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
         customer_id: customerId,
         note: note.trim() || null,
         paid: paidNum,
+        discount: discountClamped,
         items: itemsPayload,
         created_at: dateTimeLocalToDb(orderDate),
       });
@@ -441,9 +448,21 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
               </div>
             </div>
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between font-medium text-base">
-                <span>Tổng tiền:</span>
+              <div className="flex justify-between text-neutral-600">
+                <span>Tiền hàng:</span>
                 <span>{formatVND(subtotal)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="shrink-0">Chiết khấu:</Label>
+                <NumberInput
+                  value={discount}
+                  onChange={(n) => setDiscount(n)}
+                  className="text-right max-w-40 h-8"
+                />
+              </div>
+              <div className="flex justify-between font-medium text-base border-t pt-1.5">
+                <span>Tổng tiền:</span>
+                <span>{formatVND(total)}</span>
               </div>
               {customerId && (
                 <div className="flex justify-between text-neutral-500">
@@ -481,10 +500,10 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
                   </span>
                 </div>
               )}
-              {!customerId && paidNum < subtotal && (
+              {!customerId && paidNum < total && (
                 <div className="flex justify-between text-amber-600 font-medium">
                   <span>Công nợ phải thu:</span>
-                  <span>{formatVND(subtotal - paidNum)}</span>
+                  <span>{formatVND(total - paidNum)}</span>
                 </div>
               )}
             </div>
@@ -498,8 +517,8 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => setPaid(String(subtotal + oldDebt))}
-                disabled={subtotal === 0}
+                onClick={() => setPaid(String(total + oldDebt))}
+                disabled={total === 0}
                 title="Thu đủ tiền hàng + nợ cũ"
               >
                 Thu cả nợ cũ
@@ -508,8 +527,8 @@ export function SaleForm({ open, onOpenChange, editOrderId, onSuccess }: Props) 
             <Button
               type="button"
               variant="secondary"
-              onClick={() => setPaid(String(subtotal))}
-              disabled={subtotal === 0}
+              onClick={() => setPaid(String(total))}
+              disabled={total === 0}
             >
               Thu đủ
             </Button>
