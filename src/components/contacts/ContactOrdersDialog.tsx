@@ -11,8 +11,9 @@ import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { OrderDetail } from "@/components/orders/OrderDetail";
 import { AdjustDebtDialog } from "./AdjustDebtDialog";
 import { EditCashDateDialog } from "@/components/cash/EditCashDateDialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useOrdersByContact } from "@/hooks/useOrders";
-import { useContactCashFlow } from "@/hooks/useCash";
+import { useContactCashFlow, useDeleteCashTransaction } from "@/hooks/useCash";
 import {
   useContact,
   useDebtAdjustments,
@@ -103,6 +104,11 @@ export function ContactOrdersDialog({
   const [editingCash, setEditingCash] = useState<CashRow | null>(null);
   const [editingAdjustment, setEditingAdjustment] =
     useState<DebtAdjustment | null>(null);
+  const [pendingDeleteCash, setPendingDeleteCash] = useState<{
+    cash: CashTransaction;
+    title: string;
+    message: string;
+  } | null>(null);
 
   const contactId = open && contact ? contact.id : null;
   const { data: orders = [], isLoading: loadingOrders } = useOrdersByContact(
@@ -120,6 +126,7 @@ export function ContactOrdersDialog({
   const { data: freshContact } = useContact(kind, contactId);
   const { data: settings } = useSettings();
   const deleteAdjustment = useDeleteDebtAdjustment();
+  const deleteCash = useDeleteCashTransaction();
   const [exporting, setExporting] = useState(false);
 
   const orderByIdMap = useMemo(
@@ -178,6 +185,38 @@ export function ContactOrdersDialog({
     try {
       await deleteAdjustment.mutateAsync(adj.id);
       toast.success("Đã xoá phiếu điều chỉnh");
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
+
+  const handleDeleteCash = (cash: CashTransaction) => {
+    const amount = formatVND(cash.amount);
+    let title: string;
+    let message: string;
+    if (cash.ref_table === "customers" || cash.ref_table === "suppliers") {
+      title = `Xoá phiếu ${cash.type === "in" ? "thu" : "trả"} nợ?`;
+      message = `${cash.category ?? ""} - ${amount}\nCông nợ sẽ được hoàn lại.`;
+    } else if (cash.ref_table === "orders") {
+      const code = cash.ref_id ? orderByIdMap.get(cash.ref_id)?.code ?? "" : "";
+      title = `Xoá phiếu ${cash.type === "in" ? "thu" : "chi"} từ đơn hàng?`;
+      message =
+        `${cash.category ?? ""} - ${amount}\n` +
+        `Đơn hàng ${code} sẽ giảm "Đã thanh toán" tương ứng.\n` +
+        `Công nợ tự đồng bộ. Đơn hàng KHÔNG bị huỷ.`;
+    } else {
+      title = "Xoá giao dịch?";
+      message = `${cash.category ?? ""} - ${amount}`;
+    }
+    setPendingDeleteCash({ cash, title, message });
+  };
+
+  const confirmDeleteCash = async () => {
+    if (!pendingDeleteCash) return;
+    try {
+      await deleteCash.mutateAsync(pendingDeleteCash.cash.id);
+      toast.success("Đã xoá phiếu");
+      setPendingDeleteCash(null);
     } catch (err) {
       toast.error((err as Error).message);
     }
@@ -361,6 +400,15 @@ export function ContactOrdersDialog({
                               >
                                 <Trash2 className="w-4 h-4" />
                               </Button>
+                            ) : row.rowKind === "cash" ? (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => handleDeleteCash(row.data)}
+                                title="Xoá phiếu thu/chi"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
                             ) : null}
                           </TD>
                         </TR>
@@ -433,6 +481,17 @@ export function ContactOrdersDialog({
         kind={kind}
         contact={contact}
         adjustment={editingAdjustment}
+      />
+
+      <ConfirmDialog
+        open={pendingDeleteCash != null}
+        onOpenChange={(v) => !v && setPendingDeleteCash(null)}
+        title={pendingDeleteCash?.title ?? "Xoá giao dịch?"}
+        message={pendingDeleteCash?.message}
+        confirmLabel="Xoá"
+        destructive
+        busy={deleteCash.isPending}
+        onConfirm={confirmDeleteCash}
       />
     </>
   );
