@@ -80,6 +80,13 @@ export async function recomputeAndSetContactDebt(
             ))`,
     [table, contactId, contactId],
   );
+  // Gộp các phiếu điều chỉnh dư nợ (user chỉnh tay) để recompute không xoá
+  // tác động của adjustment.
+  const adjRows = await db.select<{ change_amount: number }[]>(
+    `SELECT change_amount FROM debt_adjustments
+     WHERE kind = ? AND contact_id = ?`,
+    [kind, contactId],
+  );
 
   let debt = 0;
   for (const o of orderRows) {
@@ -90,6 +97,9 @@ export async function recomputeAndSetContactDebt(
       (kind === "customer" && c.type === "in") ||
       (kind === "supplier" && c.type === "out");
     debt += reducesDebt ? -c.amount : c.amount;
+  }
+  for (const a of adjRows) {
+    debt += a.change_amount;
   }
   await db.execute(`UPDATE ${table} SET debt_amount = ? WHERE id = ?`, [
     debt,

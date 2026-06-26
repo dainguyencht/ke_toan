@@ -196,6 +196,12 @@ pub fn run() {
             sql: include_str!("../migrations/009_debt_adjustments.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 10,
+            description: "recompute_debts_with_adjustments",
+            sql: include_str!("../migrations/010_recompute_debts.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

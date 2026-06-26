@@ -135,14 +135,10 @@ export function ContactList({ kind }: Props) {
                   <TD className="font-medium">{c.name}</TD>
                   <TD className="text-neutral-600">
                     {c.phone ? (
-                      <a
-                        href={`tel:${c.phone}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-1 hover:text-brand-600"
-                      >
+                      <span className="inline-flex items-center gap-1">
                         <Phone className="w-3 h-3" />
                         {c.phone}
-                      </a>
+                      </span>
                     ) : (
                       "-"
                     )}
