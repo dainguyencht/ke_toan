@@ -6,7 +6,7 @@ import type { OrderListRow } from "@/db/orders";
 import type { CashTransaction, OrderItem, OrderType } from "@/domain/types";
 import type { SettingsMap } from "@/db/settings";
 import { getOrderItems } from "@/db/orders";
-import { toISODate } from "./utils";
+import { formatNumber, toISODate } from "./utils";
 
 type ItemWithMeta = OrderItem & {
   sku: string;
@@ -259,7 +259,7 @@ export async function exportContactStatementToExcel(
         cell.font = { bold: true };
         if (c >= 5) cell.alignment = { horizontal: "right", vertical: "middle" };
         else cell.alignment = { vertical: "middle" };
-        if (c === 11 || c === 12) cell.numFmt = MONEY_FMT;
+        if (c === 7 || c === 11 || c === 12) cell.numFmt = MONEY_FMT;
       }
     };
     const applyItemStyle = (row: ExcelJS.Row) => {
@@ -279,6 +279,7 @@ export async function exportContactStatementToExcel(
         row.getCell(1).value = formatDateTimeForCell(item.o.created_at);
         row.getCell(2).value = item.o.code;
         row.getCell(3).value = orderTypeLabel(item.o.type);
+        if (item.o.discount > 0) row.getCell(7).value = item.o.discount;
         const v = valuesFor(item, args.kind);
         if (v.debit > 0) row.getCell(11).value = v.debit;
         if (v.credit > 0) row.getCell(12).value = v.credit;
@@ -288,11 +289,26 @@ export async function exportContactStatementToExcel(
         const items = itemsByOrder.get(item.o.id) ?? [];
         for (const it of items) {
           const itemRow = ws.getRow(r);
+          // Quy đổi về đơn vị gốc khi bán theo đơn vị lớn (factor != 1).
+          const hasConv =
+            !!it.unit_factor &&
+            it.unit_factor !== 1 &&
+            !!it.base_unit &&
+            it.base_unit !== it.unit_name;
+          const baseQty = it.qty * it.unit_factor;
+          const basePrice = it.unit_factor ? it.price / it.unit_factor : it.price;
+
           itemRow.getCell(2).value = it.sku;
           itemRow.getCell(3).value = it.product_name;
-          itemRow.getCell(4).value = it.unit_name || it.base_unit;
-          itemRow.getCell(5).value = it.qty;
-          itemRow.getCell(6).value = it.price;
+          itemRow.getCell(4).value = hasConv
+            ? `${it.unit_name}\n(${it.base_unit})`
+            : it.unit_name || it.base_unit;
+          itemRow.getCell(5).value = hasConv
+            ? `${formatNumber(it.qty)}\n(${formatNumber(baseQty)})`
+            : it.qty;
+          itemRow.getCell(6).value = hasConv
+            ? `${formatNumber(it.price, 0)}\n(${formatNumber(basePrice)})`
+            : it.price;
           itemRow.getCell(7).value = it.discount || 0;
           itemRow.getCell(8).value = 0;
           itemRow.getCell(9).value = it.price;
@@ -300,6 +316,13 @@ export async function exportContactStatementToExcel(
           applyItemStyle(itemRow);
           // Align col 3 left for product name readability
           itemRow.getCell(3).alignment = { horizontal: "left", vertical: "middle" };
+          if (hasConv) {
+            itemRow.height = 30;
+            for (const c of [4, 5, 6]) {
+              const cell = itemRow.getCell(c);
+              cell.alignment = { ...cell.alignment, wrapText: true };
+            }
+          }
           r++;
         }
       } else {
