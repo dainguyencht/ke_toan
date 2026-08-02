@@ -177,6 +177,7 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
                       <TH>Loại</TH>
                       <TH>Đối tác</TH>
                       <TH className="text-right">SL ({product.unit})</TH>
+                      <TH className="text-right">Tồn sau</TH>
                       <TH className="text-right">Đơn giá</TH>
                       <TH className="text-right">Thành tiền</TH>
                     </TR>
@@ -232,6 +233,9 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
                               </div>
                             )}
                           </TD>
+                          <TD className="text-right tabular-nums text-neutral-600">
+                            {formatNumber(r.stock_after)} {product.unit}
+                          </TD>
                           <TD className="text-right tabular-nums">
                             {formatVND(pricePerBase)}
                           </TD>
@@ -258,6 +262,7 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
                         {tabStockNet > 0 ? "+" : ""}
                         {formatNumber(tabStockNet)} {product.unit}
                       </TD>
+                      <TD />
                       <TD />
                       <TD className="text-right tabular-nums">
                         {formatVND(tabTotalValue)}

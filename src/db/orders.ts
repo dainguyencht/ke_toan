@@ -691,6 +691,9 @@ export type ProductOrderRow = {
   unit_factor: number;
   total: number;
   base_unit: string;
+  /** Tồn kho (đơn vị gốc) của SP tính đến thời điểm phiếu này - gồm mọi
+   * stock_movement (nhập/bán/trả/điều chỉnh/đầu kỳ) có created_at <= phiếu. */
+  stock_after: number;
 };
 
 export async function listOrdersByProduct(
@@ -699,7 +702,8 @@ export async function listOrdersByProduct(
 ): Promise<ProductOrderRow[]> {
   const db = await getDb();
   const conds = ["v.product_id = ?", "o.status != 'cancelled'"];
-  const params: unknown[] = [productId];
+  // Param đầu cho subquery stock_after, param sau cho WHERE v.product_id.
+  const params: unknown[] = [productId, productId];
   if (dateFilter.from) {
     conds.push("date(o.created_at) >= date(?)");
     params.push(dateFilter.from);
@@ -723,7 +727,15 @@ export async function listOrdersByProduct(
        oi.unit_name   AS unit_name,
        oi.unit_factor AS unit_factor,
        oi.total       AS total,
-       p.unit         AS base_unit
+       p.unit         AS base_unit,
+       COALESCE((SELECT SUM(m.qty_change) FROM stock_movements m
+                 JOIN product_variants v2 ON v2.id = m.variant_id
+                 WHERE v2.product_id = ? AND m.created_at <= o.created_at
+                   -- Bỏ movement của phiếu đã huỷ (cả movement gốc lẫn adjust
+                   -- hoàn kho khi huỷ) để tồn khớp với các phiếu đang hiển thị.
+                   AND (m.ref_table IS NULL OR m.ref_table != 'orders'
+                        OR m.ref_id NOT IN (SELECT id FROM orders WHERE status = 'cancelled'))
+                ), 0) AS stock_after
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
      JOIN product_variants v ON v.id = oi.variant_id
