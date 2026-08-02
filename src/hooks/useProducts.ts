@@ -1,12 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   archiveProduct,
+  balanceStock,
   createProduct,
   getProduct,
+  getTotalStockValue,
   listProducts,
+  listStockAsOf,
   setInitialStock,
   updateProduct,
   type ProductInput,
+  type StockCountEntry,
 } from "@/db/products";
 import type { UnitInput } from "@/db/units";
 
@@ -16,6 +20,33 @@ export function useProducts(search: string) {
   return useQuery({
     queryKey: [...KEY, "list", search],
     queryFn: () => listProducts(search),
+  });
+}
+
+export function useTotalStockValue() {
+  return useQuery({
+    queryKey: [...KEY, "stock-value"],
+    queryFn: () => getTotalStockValue(),
+  });
+}
+
+export function useStockAsOf(date: string, search: string, enabled = true) {
+  return useQuery({
+    queryKey: [...KEY, "stock-asof", date, search],
+    queryFn: () => listStockAsOf(date, search),
+    enabled,
+  });
+}
+
+export function useBalanceStock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ date, entries }: { date: string; entries: StockCountEntry[] }) =>
+      balanceStock(date, entries),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY });
+      qc.invalidateQueries({ queryKey: ["reports"] });
+    },
   });
 }
 

@@ -1,13 +1,25 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2, Search, FileSpreadsheet } from "lucide-react";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Search,
+  FileSpreadsheet,
+  ClipboardCheck,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Abbr } from "@/components/ui/abbr";
 import { ProductForm } from "@/components/products/ProductForm";
 import { ImportProductsDialog } from "@/components/products/ImportProductsDialog";
+import { StockCountDialog } from "@/components/products/StockCountDialog";
 import { ProductOrdersDialog } from "@/components/products/ProductOrdersDialog";
-import { useArchiveProduct, useProducts } from "@/hooks/useProducts";
+import {
+  useArchiveProduct,
+  useProducts,
+  useTotalStockValue,
+} from "@/hooks/useProducts";
 import { formatNumber, formatVND } from "@/lib/utils";
 import type { Product } from "@/domain/types";
 import { toast } from "sonner";
@@ -16,10 +28,12 @@ export default function Products() {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [openImport, setOpenImport] = useState(false);
+  const [openCount, setOpenCount] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [viewingOrders, setViewingOrders] = useState<Product | null>(null);
 
   const { data: products, isLoading, error } = useProducts(search);
+  const { data: stockValue } = useTotalStockValue();
   const archive = useArchiveProduct();
 
   const handleEdit = (p: Product) => {
@@ -47,9 +61,24 @@ export default function Products() {
           <h1 className="text-2xl font-semibold">Sản phẩm</h1>
           <p className="text-sm text-neutral-500 mt-1">
             {products?.length ?? 0} sản phẩm
+            {stockValue != null && (
+              <>
+                {" · "}
+                <Abbr title="Tổng giá trị hàng tồn kho theo giá vốn (toàn bộ sản phẩm)">
+                  Tồn kho:
+                </Abbr>{" "}
+                <span className="font-medium text-neutral-700">
+                  {formatVND(stockValue)}
+                </span>
+              </>
+            )}
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setOpenCount(true)}>
+            <ClipboardCheck className="w-4 h-4" />
+            Kiểm kho
+          </Button>
           <Button variant="outline" onClick={() => setOpenImport(true)}>
             <FileSpreadsheet className="w-4 h-4" />
             Nhập từ Excel
@@ -155,6 +184,7 @@ export default function Products() {
 
       <ProductForm open={open} onOpenChange={setOpen} product={editing} />
       <ImportProductsDialog open={openImport} onOpenChange={setOpenImport} />
+      <StockCountDialog open={openCount} onOpenChange={setOpenCount} />
       <ProductOrdersDialog
         open={viewingOrders != null}
         onOpenChange={(o) => !o && setViewingOrders(null)}

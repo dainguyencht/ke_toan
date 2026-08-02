@@ -55,6 +55,110 @@ export async function listProducts(search = ""): Promise<ProductWithStock[]> {
   );
 }
 
+/**
+ * Tổng giá trị hàng tồn kho theo giá vốn = Σ(stock_qty × giá vốn).
+ * Dùng giá vốn variant nếu có, không thì fallback giá vốn product.
+ * Tính trên toàn bộ SP chưa ẩn (không theo filter/limit của danh sách).
+ */
+export async function getTotalStockValue(): Promise<number> {
+  const db = await getDb();
+  const rows = await db.select<{ value: number }[]>(
+    `SELECT COALESCE(SUM(v.stock_qty * COALESCE(v.price_cost, p.price_cost)), 0) AS value
+     FROM product_variants v
+     JOIN products p ON p.id = v.product_id
+     WHERE p.is_archived = 0`,
+  );
+  return rows[0]?.value ?? 0;
+}
+
+export type StockCountRow = {
+  variant_id: number;
+  product_id: number;
+  sku: string;
+  product_name: string;
+  attrs_json: string;
+  base_unit: string;
+  /** Tồn hệ thống tính đến cuối ngày kiểm (cộng dồn stock_movements tới ngày). */
+  system_stock: number;
+};
+
+/**
+ * Kiểm kho: tồn hệ thống của từng variant tính ĐẾN CUỐI ngày `date`
+ * ('YYYY-MM-DD'), cộng dồn stock_movements có created_at <= 'date 23:59:59'.
+ * 1 dòng / variant (SP nhiều biến thể hiện từng biến thể).
+ */
+export async function listStockAsOf(
+  date: string,
+  search = "",
+): Promise<StockCountRow[]> {
+  const db = await getDb();
+  const cutoff = `${date} 23:59:59`;
+  const trimmed = search.trim();
+  const base = `
+    SELECT
+      v.id                                AS variant_id,
+      p.id                                AS product_id,
+      v.sku                               AS sku,
+      p.name                              AS product_name,
+      v.attrs_json                        AS attrs_json,
+      p.unit                              AS base_unit,
+      COALESCE((SELECT SUM(m.qty_change) FROM stock_movements m
+                WHERE m.variant_id = v.id AND m.created_at <= ?), 0) AS system_stock
+    FROM product_variants v
+    JOIN products p ON p.id = v.product_id
+    WHERE p.is_archived = 0
+  `;
+  if (!trimmed) {
+    return await db.select<StockCountRow[]>(
+      `${base} ORDER BY p.name, v.id`,
+      [cutoff],
+    );
+  }
+  const like = `%${trimmed}%`;
+  return await db.select<StockCountRow[]>(
+    `${base} AND (p.name LIKE ? OR v.sku LIKE ? OR p.barcode LIKE ?)
+     ORDER BY p.name, v.id`,
+    [cutoff, like, like, like],
+  );
+}
+
+export type StockCountEntry = {
+  variant_id: number;
+  system_stock: number;
+  counted: number;
+};
+
+/**
+ * Cân bằng kho: với mỗi variant có lệch (counted != system_stock), ghi 1
+ * stock_movement type='adjust' với qty_change = counted − system_stock, đề ngày
+ * cuối ngày kiểm (`date` 23:59:59) để các phát sinh sau ngày vẫn cộng lên trên.
+ * Cập nhật cache stock_qty tương ứng. Trả về số dòng đã điều chỉnh.
+ */
+export async function balanceStock(
+  date: string,
+  entries: StockCountEntry[],
+): Promise<number> {
+  const db = await getDb();
+  const stamp = `${date} 23:59:59`;
+  let adjusted = 0;
+  for (const e of entries) {
+    const diff = e.counted - e.system_stock;
+    if (diff === 0) continue;
+    const note = `Kiểm kho ${date}: HT ${e.system_stock} → TT ${e.counted}`;
+    await db.execute(
+      `INSERT INTO stock_movements (variant_id, qty_change, type, note, created_at)
+       VALUES (?, ?, 'adjust', ?, ?)`,
+      [e.variant_id, diff, note, stamp],
+    );
+    await db.execute(
+      "UPDATE product_variants SET stock_qty = stock_qty + ? WHERE id = ?",
+      [diff, e.variant_id],
+    );
+    adjusted++;
+  }
+  return adjusted;
+}
+
 export async function getProduct(id: number): Promise<Product | null> {
   const db = await getDb();
   const rows = await db.select<Product[]>("SELECT * FROM products WHERE id = ?", [id]);
