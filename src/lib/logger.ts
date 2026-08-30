@@ -25,7 +25,29 @@ function stamp(): string {
   );
 }
 
+function one(a: unknown): string {
+  if (a instanceof Error) return `${a.name}: ${a.message}\n${a.stack ?? ""}`;
+  if (typeof a === "object" && a !== null) {
+    try {
+      return JSON.stringify(a);
+    } catch {
+      return String(a);
+    }
+  }
+  return String(a);
+}
+
 function serialize(args: unknown[]): string {
+  // console.error("%s bị lỗi", x) - thay format specifier bằng tham số tương ứng
+  // (React dùng kiểu này, nếu giữ nguyên %o/%s log sẽ rất khó đọc).
+  if (typeof args[0] === "string" && /%[sdifoOc]/.test(args[0])) {
+    const rest = args.slice(1);
+    let i = 0;
+    const head = args[0].replace(/%[sdifoOc]/g, (m) =>
+      m === "%c" ? "" : i < rest.length ? one(rest[i++]) : m,
+    );
+    return [head, ...rest.slice(i).map(one)].join(" ").trim();
+  }
   return args
     .map((a) => {
       if (a instanceof Error) return `${a.name}: ${a.message}\n${a.stack ?? ""}`;

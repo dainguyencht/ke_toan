@@ -40,8 +40,19 @@ export function formatPercent(value: number, decimals = 1): string {
   );
 }
 
-export function formatDate(value: string | Date): string {
+/**
+ * Chuỗi/Date → Date hợp lệ, hoặc null nếu không parse được.
+ * Dữ liệu cũ có thể chứa ngày hỏng (vd năm 2 chữ số '0020-08-30 15:46:00' do gõ
+ * nhầm ô năm) — Intl sẽ ném RangeError làm trắng cả trang, nên phải chặn ở đây.
+ */
+function safeDate(value: string | Date): Date | null {
   const d = typeof value === "string" ? new Date(value) : value;
+  return d instanceof Date && !isNaN(d.getTime()) ? d : null;
+}
+
+export function formatDate(value: string | Date): string {
+  const d = safeDate(value);
+  if (!d) return value ? String(value) : "-";
   return new Intl.DateTimeFormat("vi-VN", {
     day: "2-digit",
     month: "2-digit",
@@ -50,7 +61,8 @@ export function formatDate(value: string | Date): string {
 }
 
 export function formatDateTime(value: string | Date): string {
-  const d = typeof value === "string" ? new Date(value) : value;
+  const d = safeDate(value);
+  if (!d) return value ? String(value) : "-";
   return new Intl.DateTimeFormat("vi-VN", {
     day: "2-digit",
     month: "2-digit",
@@ -80,19 +92,30 @@ export function dbDateTime(d: Date = new Date()): string {
   );
 }
 
-/** Chuỗi created_at hoặc Date → value cho <input type="datetime-local"> ('YYYY-MM-DDTHH:mm') */
+/** Chuỗi created_at hoặc Date → value cho <input type="datetime-local"> ('YYYY-MM-DDTHH:mm').
+ * Ngày hỏng → lấy thời điểm hiện tại để dialog sửa ngày vẫn mở được. */
 export function toDateTimeLocalValue(value: string | Date): string {
-  const d = typeof value === "string" ? new Date(value) : value;
+  const d = safeDate(value) ?? new Date();
   return (
     `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` +
     `T${pad2(d.getHours())}:${pad2(d.getMinutes())}`
   );
 }
 
-/** Value từ <input type="datetime-local"> ('YYYY-MM-DDTHH:mm') → 'YYYY-MM-DD HH:MM:SS' để lưu DB */
+/**
+ * Value từ <input type="datetime-local"> ('YYYY-MM-DDTHH:mm') → 'YYYY-MM-DD HH:MM:SS' để lưu DB.
+ * Chỉ nhận chuỗi parse được; giá trị lạ (vd năm 2 chữ số '0020-08-30T15:46' do gõ
+ * nhầm ô năm) sẽ bị chặn và thay bằng thời điểm hiện tại, tránh ghi ngày hỏng vào DB.
+ */
 export function dateTimeLocalToDb(v: string): string {
   if (!v) return dbDateTime();
-  return v.replace("T", " ") + (v.length === 16 ? ":00" : "");
+  const raw = v.replace("T", " ") + (v.length === 16 ? ":00" : "");
+  const d = safeDate(raw);
+  if (!d) {
+    console.warn(`[dateTimeLocalToDb] ngày không hợp lệ: "${v}" - dùng giờ hiện tại`);
+    return dbDateTime();
+  }
+  return dbDateTime(d);
 }
 
 /** Lấy 'YYYY-MM-DD' cho N ngày trước (0 = hôm nay) */

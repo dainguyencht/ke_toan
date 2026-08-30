@@ -41,9 +41,9 @@ export class ErrorBoundary extends React.Component<Props, State> {
           <strong>Tải lại</strong>.
         </p>
         <pre className="text-xs bg-neutral-100 border border-neutral-200 rounded p-3 mb-4 max-h-48 overflow-auto whitespace-pre-wrap">
-          {this.state.err.name}: {this.state.err.message}
-          {"\n"}
-          {this.state.err.stack}
+          {/* stack đã chứa sẵn "Tên lỗi: nội dung" nên không in lặp lại */}
+          {this.state.err.stack ||
+            `${this.state.err.name}: ${this.state.err.message}`}
         </pre>
         <div className="flex gap-2">
           <Button onClick={this.handleExport}>Xuất log</Button>
