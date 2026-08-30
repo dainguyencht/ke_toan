@@ -9,6 +9,7 @@ import {
   RefreshCw,
   AlertCircle,
   Lock,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { useSettings, useUpdateSettings } from "@/hooks/useSettings";
 import { formatDate, toISODate } from "@/lib/utils";
 import { hashPassword } from "@/lib/passwordHash";
+import { exportLog } from "@/lib/logger";
 import { toast } from "sonner";
 
 export default function Settings() {
@@ -182,6 +184,12 @@ export default function Settings() {
     } catch (err) {
       toast.error(`Lỗi khôi phục: ${(err as Error).message}`);
     }
+  };
+
+  const handleExportLog = async () => {
+    const ok = await exportLog();
+    if (ok) toast.success("Đã xuất log - gửi file này cho bộ phận hỗ trợ");
+    else toast.error("Không xuất được file - log đã chép vào clipboard");
   };
 
   // Path từ Rust dùng `/` trên macOS/Linux, `\` trên Windows — split cả 2
@@ -380,6 +388,22 @@ export default function Settings() {
               Sau khi <strong>khôi phục</strong>, bạn cần đóng app và mở lại để DB
               load đúng dữ liệu mới.
             </span>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="Hỗ trợ kỹ thuật">
+        <div className="space-y-4">
+          <p className="text-xs text-neutral-500 leading-relaxed">
+            Khi app báo lỗi hoặc hiển thị sai, bấm <strong>Xuất log</strong> để lưu
+            file nhật ký rồi gửi cho bộ phận hỗ trợ. File chỉ chứa thông báo lỗi
+            kỹ thuật của phiên đang chạy, không có mật khẩu.
+          </p>
+          <div>
+            <Button variant="outline" onClick={handleExportLog}>
+              <FileText className="w-4 h-4" />
+              Xuất log lỗi...
+            </Button>
           </div>
         </div>
       </Section>

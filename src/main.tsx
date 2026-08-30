@@ -4,7 +4,12 @@ import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import App from "./App";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { installLogger, mountCrashFallbackIfBlank, pushLog } from "./lib/logger";
 import "./index.css";
+
+// Bắt console + lỗi global vào buffer ngay từ đầu, để lỗi sớm cũng có log.
+installLogger();
 
 // Chặn WebView2 (Windows) delegate "mở tab mới" sang trình duyệt mặc định.
 // Nguyên nhân: middle-click, Ctrl/Cmd+click, hoặc target="_blank" link → WebView2
@@ -39,13 +44,21 @@ const queryClient = new QueryClient({
   },
 });
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <App />
-        <Toaster richColors position="top-right" />
-      </BrowserRouter>
-    </QueryClientProvider>
-  </React.StrictMode>,
-);
+try {
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <ErrorBoundary>
+            <App />
+          </ErrorBoundary>
+          <Toaster richColors position="top-right" />
+        </BrowserRouter>
+      </QueryClientProvider>
+    </React.StrictMode>,
+  );
+} catch (err) {
+  // Lỗi ngay lúc mount (chưa vào được ErrorBoundary) -> màn hình trắng.
+  pushLog("error", "Mount app thất bại:", err);
+  mountCrashFallbackIfBlank(true);
+}
