@@ -9,9 +9,16 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { OrderDetail } from "@/components/orders/OrderDetail";
-import { useOrdersByProduct } from "@/hooks/useOrders";
+import {
+  useOrdersByProduct,
+  useStockAdjustmentsByProduct,
+} from "@/hooks/useOrders";
 import { cn, formatDateTime, formatNumber, formatVND, toISODate } from "@/lib/utils";
-import type { DateFilter, ProductOrderRow } from "@/db/orders";
+import type {
+  DateFilter,
+  ProductOrderRow,
+  ProductStockAdjustRow,
+} from "@/db/orders";
 import type { OrderType } from "@/domain/types";
 import type { Product } from "@/domain/types";
 
@@ -29,6 +36,8 @@ const TYPE_LABEL: Record<OrderType, { text: string; tone: string }> = {
   return: { text: "Trả", tone: "bg-amber-50 text-amber-700" },
 };
 
+const ADJUST_TONE = "bg-violet-50 text-violet-700";
+
 /** Dấu của tác động lên tồn kho của 1 dòng phiếu */
 function stockSign(r: ProductOrderRow): 1 | -1 {
   if (r.type === "purchase") return 1;
@@ -38,7 +47,22 @@ function stockSign(r: ProductOrderRow): 1 | -1 {
   return -1;
 }
 
-type TypeTab = "all" | OrderType;
+/**
+ * 1 dòng lịch sử kho: phiếu nhập/bán/trả, HOẶC biến động không gắn phiếu
+ * (kiểm kho, điều chỉnh tay, tồn đầu kỳ). Phải hiện cả hai thì cột "Tồn sau"
+ * mới cộng trừ khớp nhau - trước đây ẩn dòng điều chỉnh nên tồn trông như sai.
+ */
+type Row =
+  | { kind: "order"; at: string; o: ProductOrderRow }
+  | { kind: "adjust"; at: string; a: ProductStockAdjustRow };
+
+type TypeTab = "all" | OrderType | "adjust";
+
+/** Thay đổi tồn (đơn vị gốc, có dấu) của 1 dòng bất kỳ */
+function rowStockDelta(r: Row): number {
+  if (r.kind === "adjust") return r.a.qty_change;
+  return stockSign(r.o) * r.o.qty * (r.o.unit_factor || 1);
+}
 
 export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
   const [detailId, setDetailId] = useState<number | null>(null);
@@ -54,10 +78,26 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
     return { from: fromDate || null, to: toDate || null };
   }, [dateMode, today, fromDate, toDate]);
 
-  const { data: rows = [], isLoading } = useOrdersByProduct(
-    open && product ? product.id : null,
+  const productId = open && product ? product.id : null;
+  const { data: orderRows = [], isLoading } = useOrdersByProduct(
+    productId,
     dateFilter,
   );
+  const { data: adjustRows = [], isLoading: loadingAdjust } =
+    useStockAdjustmentsByProduct(productId, dateFilter);
+
+  // Gộp 2 nguồn thành 1 timeline, mới nhất trước
+  const allRows: Row[] = useMemo(() => {
+    const merged: Row[] = [
+      ...orderRows.map((o) => ({ kind: "order" as const, at: o.created_at, o })),
+      ...adjustRows.map((a) => ({
+        kind: "adjust" as const,
+        at: a.created_at,
+        a,
+      })),
+    ];
+    return merged.sort((x, y) => (x.at < y.at ? 1 : x.at > y.at ? -1 : 0));
+  }, [orderRows, adjustRows]);
 
   if (!product) return null;
 
@@ -67,7 +107,7 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
   let totalReturnQty = 0;
   let totalPurchaseValue = 0;
   let totalSaleValue = 0;
-  for (const r of rows) {
+  for (const r of orderRows) {
     const qtyBase = r.qty * (r.unit_factor || 1);
     if (r.type === "purchase") {
       totalPurchaseQty += qtyBase;
@@ -79,30 +119,37 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
       totalReturnQty += qtyBase;
     }
   }
+  const totalAdjustQty = adjustRows.reduce((s, a) => s + a.qty_change, 0);
 
   // Count theo từng tab
   const counts = {
-    all: rows.length,
-    purchase: rows.filter((r) => r.type === "purchase").length,
-    sale: rows.filter((r) => r.type === "sale").length,
-    return: rows.filter((r) => r.type === "return").length,
+    all: allRows.length,
+    purchase: orderRows.filter((r) => r.type === "purchase").length,
+    sale: orderRows.filter((r) => r.type === "sale").length,
+    return: orderRows.filter((r) => r.type === "return").length,
+    adjust: adjustRows.length,
   };
 
   // Rows hiển thị theo tab + tồn kho net (signed) cho tab đang chọn
-  const visibleRows = typeTab === "all" ? rows : rows.filter((r) => r.type === typeTab);
-  const tabStockNet = visibleRows.reduce(
-    (s, r) => s + stockSign(r) * r.qty * (r.unit_factor || 1),
+  const visibleRows =
+    typeTab === "all"
+      ? allRows
+      : typeTab === "adjust"
+        ? allRows.filter((r) => r.kind === "adjust")
+        : allRows.filter((r) => r.kind === "order" && r.o.type === typeTab);
+  const tabStockNet = visibleRows.reduce((s, r) => s + rowStockDelta(r), 0);
+  const tabTotalValue = visibleRows.reduce(
+    (s, r) => s + (r.kind === "order" ? r.o.total : 0),
     0,
   );
-  const tabTotalValue = visibleRows.reduce((s, r) => s + r.total, 0);
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-5xl max-h-[88vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl max-h-[88vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              Lịch sử phiếu — {product.sku} · {product.name}
+              Lịch sử kho - {product.sku} · {product.name}
             </DialogTitle>
           </DialogHeader>
 
@@ -156,15 +203,18 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
               <TabsTrigger value="purchase">Nhập ({counts.purchase})</TabsTrigger>
               <TabsTrigger value="sale">Bán ({counts.sale})</TabsTrigger>
               <TabsTrigger value="return">Trả ({counts.return})</TabsTrigger>
+              <TabsTrigger value="adjust">
+                Điều chỉnh ({counts.adjust})
+              </TabsTrigger>
             </TabsList>
           </Tabs>
 
-          {/* Bảng phiếu */}
-          {isLoading ? (
+          {/* Bảng lịch sử */}
+          {isLoading || loadingAdjust ? (
             <div className="p-6 text-neutral-500 text-sm">Đang tải...</div>
           ) : visibleRows.length === 0 ? (
             <div className="p-10 text-center text-neutral-500 text-sm">
-              Không có phiếu nào.
+              Không có dòng nào.
             </div>
           ) : (
             <div className="space-y-4">
@@ -175,7 +225,7 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
                       <TH>Mã phiếu</TH>
                       <TH>Thời gian</TH>
                       <TH>Loại</TH>
-                      <TH>Đối tác</TH>
+                      <TH>Đối tác / Diễn giải</TH>
                       <TH className="text-right">SL ({product.unit})</TH>
                       <TH className="text-right">Tồn sau</TH>
                       <TH className="text-right">Đơn giá</TH>
@@ -183,10 +233,74 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
                     </TR>
                   </THead>
                   <TBody>
-                    {visibleRows.map((r, idx) => {
-                      const sign = stockSign(r);
-                      const qtyBase = sign * r.qty * (r.unit_factor || 1);
-                      const isConverted = r.unit_name !== r.base_unit;
+                    {visibleRows.map((row, idx) => {
+                      const delta = rowStockDelta(row);
+                      const qtyCell = (
+                        <TD
+                          className={cn(
+                            "text-right tabular-nums",
+                            delta < 0
+                              ? "text-red-600"
+                              : delta > 0
+                                ? "text-green-700"
+                                : "",
+                          )}
+                        >
+                          {delta > 0 ? "+" : ""}
+                          {formatNumber(delta)}
+                          {row.kind === "order" &&
+                            row.o.unit_name !== row.o.base_unit && (
+                              <div className="text-xs text-neutral-400">
+                                ({formatNumber(row.o.qty)} {row.o.unit_name})
+                              </div>
+                            )}
+                        </TD>
+                      );
+                      const stockCell = (
+                        <TD className="text-right tabular-nums text-neutral-600">
+                          {formatNumber(
+                            row.kind === "order"
+                              ? row.o.stock_after
+                              : row.a.stock_after,
+                          )}{" "}
+                          {product.unit}
+                        </TD>
+                      );
+
+                      if (row.kind === "adjust") {
+                        const isInit = row.a.type === "init";
+                        return (
+                          <TR key={`adj-${row.a.movement_id}`}>
+                            <TD className="text-neutral-400">-</TD>
+                            <TD className="text-neutral-600 whitespace-nowrap">
+                              {formatDateTime(row.a.created_at)}
+                            </TD>
+                            <TD>
+                              <span
+                                className={cn(
+                                  "inline-flex whitespace-nowrap px-2 py-0.5 rounded text-xs font-medium",
+                                  ADJUST_TONE,
+                                )}
+                              >
+                                {isInit ? "Tồn đầu" : "Điều chỉnh"}
+                              </span>
+                            </TD>
+                            <TD className="text-neutral-600">
+                              {row.a.note ?? (
+                                <span className="text-neutral-400">
+                                  Điều chỉnh tồn kho
+                                </span>
+                              )}
+                            </TD>
+                            {qtyCell}
+                            {stockCell}
+                            <TD className="text-right text-neutral-400">-</TD>
+                            <TD className="text-right text-neutral-400">-</TD>
+                          </TR>
+                        );
+                      }
+
+                      const r = row.o;
                       const tInfo = TYPE_LABEL[r.type];
                       const pricePerBase =
                         r.unit_factor > 0 ? r.price / r.unit_factor : r.price;
@@ -196,14 +310,14 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
                           onClick={() => setDetailId(r.order_id)}
                           className="cursor-pointer"
                         >
-                          <TD className="font-mono text-xs">{r.code}</TD>
+                          <TD className="font-mono text-xs whitespace-nowrap">{r.code}</TD>
                           <TD className="text-neutral-600 whitespace-nowrap">
                             {formatDateTime(r.created_at)}
                           </TD>
                           <TD>
                             <span
                               className={cn(
-                                "inline-flex px-2 py-0.5 rounded text-xs font-medium",
+                                "inline-flex whitespace-nowrap px-2 py-0.5 rounded text-xs font-medium",
                                 tInfo.tone,
                               )}
                             >
@@ -215,27 +329,8 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
                               <span className="text-neutral-400">-</span>
                             )}
                           </TD>
-                          <TD
-                            className={cn(
-                              "text-right tabular-nums",
-                              qtyBase < 0
-                                ? "text-red-600"
-                                : qtyBase > 0
-                                  ? "text-green-700"
-                                  : "",
-                            )}
-                          >
-                            {qtyBase > 0 ? "+" : ""}
-                            {formatNumber(qtyBase)}
-                            {isConverted && (
-                              <div className="text-xs text-neutral-400">
-                                ({formatNumber(r.qty)} {r.unit_name})
-                              </div>
-                            )}
-                          </TD>
-                          <TD className="text-right tabular-nums text-neutral-600">
-                            {formatNumber(r.stock_after)} {product.unit}
-                          </TD>
+                          {qtyCell}
+                          {stockCell}
                           <TD className="text-right tabular-nums">
                             {formatVND(pricePerBase)}
                           </TD>
@@ -311,6 +406,15 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
                     <span className="text-neutral-500">SL trả hàng:</span>
                     <span className="tabular-nums text-amber-700">
                       {formatNumber(totalReturnQty)} {product.unit}
+                    </span>
+                  </div>
+                )}
+                {totalAdjustQty !== 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-neutral-500">Điều chỉnh kho:</span>
+                    <span className="tabular-nums text-violet-700">
+                      {totalAdjustQty > 0 ? "+" : ""}
+                      {formatNumber(totalAdjustQty)} {product.unit}
                     </span>
                   </div>
                 )}

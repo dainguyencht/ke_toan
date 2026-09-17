@@ -5,6 +5,7 @@ import type {
   OrderStatus,
   OrderType,
   ProductUnit,
+  StockMovementType,
 } from "@/domain/types";
 import { dbDateTime } from "@/lib/utils";
 import { listUnitsOfProduct } from "./units";
@@ -744,6 +745,62 @@ export async function listOrdersByProduct(
      LEFT JOIN suppliers s ON s.id = o.supplier_id
      WHERE ${conds.join(" AND ")}
      ORDER BY o.created_at DESC, o.id DESC`,
+    params,
+  );
+}
+
+export type ProductStockAdjustRow = {
+  movement_id: number;
+  created_at: string;
+  /** Thay đổi tồn theo ĐƠN VỊ GỐC (dương = tăng, âm = giảm). */
+  qty_change: number;
+  type: StockMovementType;
+  note: string | null;
+  /** Tồn kho tính đến thời điểm movement này - cùng công thức với phiếu. */
+  stock_after: number;
+};
+
+/**
+ * Các biến động kho KHÔNG gắn phiếu của 1 SP: kiểm kho/điều chỉnh tay, tồn đầu
+ * kỳ. Trước đây bị ẩn khỏi lịch sử phiếu nên cột "Tồn sau" trông như sai
+ * (vd nhập 2, bán 2 mà tồn vẫn 2 vì có kiểm kho +2 xen giữa) - phải hiện ra.
+ */
+export async function listStockAdjustmentsByProduct(
+  productId: number,
+  dateFilter: DateFilter = {},
+): Promise<ProductStockAdjustRow[]> {
+  const db = await getDb();
+  const conds = [
+    "v.product_id = ?",
+    // movement của phiếu đã hiện thành dòng phiếu riêng
+    "(m.ref_table IS NULL OR m.ref_table != 'orders')",
+  ];
+  const params: unknown[] = [productId, productId];
+  if (dateFilter.from) {
+    conds.push("date(m.created_at) >= date(?)");
+    params.push(dateFilter.from);
+  }
+  if (dateFilter.to) {
+    conds.push("date(m.created_at) <= date(?)");
+    params.push(dateFilter.to);
+  }
+  return await db.select<ProductStockAdjustRow[]>(
+    `SELECT
+       m.id         AS movement_id,
+       m.created_at AS created_at,
+       m.qty_change AS qty_change,
+       m.type       AS type,
+       m.note       AS note,
+       COALESCE((SELECT SUM(m2.qty_change) FROM stock_movements m2
+                 JOIN product_variants v2 ON v2.id = m2.variant_id
+                 WHERE v2.product_id = ? AND m2.created_at <= m.created_at
+                   AND (m2.ref_table IS NULL OR m2.ref_table != 'orders'
+                        OR m2.ref_id NOT IN (SELECT id FROM orders WHERE status = 'cancelled'))
+                ), 0) AS stock_after
+     FROM stock_movements m
+     JOIN product_variants v ON v.id = m.variant_id
+     WHERE ${conds.join(" AND ")}
+     ORDER BY m.created_at DESC, m.id DESC`,
     params,
   );
 }

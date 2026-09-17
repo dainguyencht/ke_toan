@@ -9,6 +9,7 @@ import {
   listOrders,
   listOrdersByContact,
   listOrdersByProduct,
+  listStockAdjustmentsByProduct,
   payOrderDebt,
   type DateFilter,
   type PurchaseInput,
@@ -52,6 +53,26 @@ export function useOrdersByProduct(
     queryFn: () =>
       productId
         ? listOrdersByProduct(productId, dateFilter)
+        : Promise.resolve([]),
+    enabled: productId != null,
+  });
+}
+
+export function useStockAdjustmentsByProduct(
+  productId: number | null,
+  dateFilter: DateFilter = {},
+) {
+  return useQuery({
+    queryKey: [
+      ...KEY,
+      "stock-adjust-by-product",
+      productId,
+      dateFilter.from ?? null,
+      dateFilter.to ?? null,
+    ],
+    queryFn: () =>
+      productId
+        ? listStockAdjustmentsByProduct(productId, dateFilter)
         : Promise.resolve([]),
     enabled: productId != null,
   });
