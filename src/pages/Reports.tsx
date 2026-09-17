@@ -12,6 +12,7 @@ import {
 import {
   useDebtList,
   useProfitByProduct,
+  useProfitByCustomer,
   useProfitLoss,
   useProfitTotal,
   useRevenueByDay,
@@ -374,10 +375,14 @@ function ProfitReport({ period, setPeriod }: PeriodProps) {
     const d = periodToDates(period);
     return { from: d.from ?? "", to: d.to ?? "" };
   }, [period]);
+  const [by, setBy] = useState<"product" | "customer">("product");
   const { data = [] } = useProfitByProduct(from, to);
+  const { data: byCustomer = [] } = useProfitByCustomer(from, to);
   const { data: allTime } = useProfitTotal();
 
-  const totals = data.reduce(
+  // Tổng lấy theo đúng bảng đang xem để 4 thẻ luôn khớp với bảng bên dưới
+  // (2 nguồn cùng tập dòng nên bình thường bằng nhau).
+  const totals = (by === "customer" ? byCustomer : data).reduce(
     (acc, r) => ({
       revenue: acc.revenue + r.revenue,
       cost: acc.cost + r.cost_total,
@@ -429,6 +434,84 @@ function ProfitReport({ period, setPeriod }: PeriodProps) {
           tooltip="= Lãi gộp / Doanh thu × 100%"
         />
       </div>
+      <Tabs value={by} onValueChange={(v) => setBy(v as typeof by)}>
+        <TabsList>
+          <TabsTrigger value="product">Theo sản phẩm</TabsTrigger>
+          <TabsTrigger value="customer">Theo khách hàng</TabsTrigger>
+        </TabsList>
+      </Tabs>
+      {by === "customer" ? (
+        <div className="border border-neutral-200 rounded-md bg-white">
+          {byCustomer.length === 0 ? (
+            <Empty />
+          ) : (
+            <Table>
+              <THead>
+                <TR>
+                  <TH>Khách hàng</TH>
+                  <TH>Điện thoại</TH>
+                  <TH className="text-right">
+                    <Abbr title="Số phiếu bán/trả trong kỳ">Số đơn</Abbr>
+                  </TH>
+                  <TH className="text-right">Doanh thu</TH>
+                  <TH className="text-right">
+                    <Abbr title="Giá vốn - Giá nhập hàng">Giá vốn</Abbr>
+                  </TH>
+                  <TH className="text-right">
+                    <Abbr title="Lãi gộp = Doanh thu − Giá vốn">Lãi gộp</Abbr>
+                  </TH>
+                  <TH className="text-right">
+                    <Abbr title="Biên lãi = Lãi gộp / Doanh thu">Biên %</Abbr>
+                  </TH>
+                </TR>
+              </THead>
+              <TBody>
+                {byCustomer.map((r) => {
+                  const m = r.revenue > 0 ? (r.profit / r.revenue) * 100 : 0;
+                  return (
+                    <TR key={r.customer_id}>
+                      <TD className="font-medium">
+                        {r.name}
+                        {r.customer_id === 0 && (
+                          <span className="ml-1 text-xs text-neutral-400">
+                            (đơn không gắn khách)
+                          </span>
+                        )}
+                      </TD>
+                      <TD className="text-neutral-600">
+                        {r.phone ?? <span className="text-neutral-400">-</span>}
+                      </TD>
+                      <TD className="text-right tabular-nums">{r.order_count}</TD>
+                      <TD className="text-right tabular-nums">
+                        {formatVND(r.revenue)}
+                      </TD>
+                      <TD className="text-right tabular-nums text-neutral-500">
+                        {formatVND(r.cost_total)}
+                      </TD>
+                      <TD
+                        className={cn(
+                          "text-right tabular-nums font-medium",
+                          r.profit >= 0 ? "text-green-700" : "text-red-700",
+                        )}
+                      >
+                        {formatVND(r.profit)}
+                      </TD>
+                      <TD
+                        className={cn(
+                          "text-right tabular-nums",
+                          m >= 0 ? "text-green-700" : "text-red-700",
+                        )}
+                      >
+                        {formatPercent(m)}
+                      </TD>
+                    </TR>
+                  );
+                })}
+              </TBody>
+            </Table>
+          )}
+        </div>
+      ) : (
       <div className="border border-neutral-200 rounded-md bg-white">
         {data.length === 0 ? (
           <Empty />
@@ -494,6 +577,7 @@ function ProfitReport({ period, setPeriod }: PeriodProps) {
           </Table>
         )}
       </div>
+      )}
     </div>
   );
 }

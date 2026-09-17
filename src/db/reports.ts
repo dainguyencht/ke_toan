@@ -290,6 +290,59 @@ export async function getProfitByProduct(
   );
 }
 
+export type ProfitByCustomerRow = {
+  customer_id: number; // 0 = khách lẻ (đơn không gắn khách)
+  name: string;
+  phone: string | null;
+  order_count: number;
+  revenue: number;
+  cost_total: number;
+  profit: number;
+};
+
+/**
+ * Lãi gộp theo từng khách hàng trong kỳ. Cùng công thức với getProfitByProduct:
+ * doanh thu phân bổ chiết khấu phiếu theo tỉ lệ, giá vốn lấy snapshot i.cost,
+ * phiếu trả của KH thì trừ ngược. Đơn không gắn khách gộp vào "Khách lẻ".
+ */
+export async function getProfitByCustomer(
+  fromDate: string,
+  toDate: string,
+): Promise<ProfitByCustomerRow[]> {
+  const db = await getDb();
+  return await db.select<ProfitByCustomerRow[]>(
+    `SELECT
+       COALESCE(o.customer_id, 0)   AS customer_id,
+       COALESCE(c.name, 'Khách lẻ') AS name,
+       c.phone                      AS phone,
+       COUNT(DISTINCT o.id)         AS order_count,
+       SUM(CASE WHEN o.type='sale' THEN
+                  i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0))
+                WHEN o.type='return' THEN
+                  -i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0))
+                ELSE 0 END) AS revenue,
+       SUM(CASE WHEN o.type='sale' THEN  i.qty * i.cost
+                WHEN o.type='return' THEN -i.qty * i.cost
+                ELSE 0 END) AS cost_total,
+       SUM(CASE WHEN o.type='sale' THEN
+                  i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * i.cost
+                WHEN o.type='return' THEN
+                  -(i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * i.cost)
+                ELSE 0 END) AS profit
+     FROM order_items i
+     JOIN orders o        ON o.id = i.order_id
+     LEFT JOIN customers c ON c.id = o.customer_id
+     WHERE (o.type='sale'
+            OR (o.type='return' AND o.customer_id IS NOT NULL))
+       AND o.status != 'cancelled'
+       AND date(o.created_at) BETWEEN date(?) AND date(?)
+     GROUP BY COALESCE(o.customer_id, 0)
+     HAVING revenue <> 0 OR profit <> 0
+     ORDER BY profit DESC`,
+    [fromDate, toDate],
+  );
+}
+
 export type StockValuationRow = {
   variant_id: number;
   product_id: number;

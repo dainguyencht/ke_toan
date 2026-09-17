@@ -4,6 +4,7 @@ import {
   getDebtList,
   getLowStockItems,
   getProfitByProduct,
+  getProfitByCustomer,
   getProfitLoss,
   getProfitTotal,
   getRevenueByDay,
@@ -53,6 +54,13 @@ export function useProfitByProduct(from: string, to: string) {
   return useQuery({
     queryKey: [...KEY, "profit", from, to],
     queryFn: () => getProfitByProduct(from, to),
+  });
+}
+
+export function useProfitByCustomer(from: string, to: string) {
+  return useQuery({
+    queryKey: [...KEY, "profit-by-customer", from, to],
+    queryFn: () => getProfitByCustomer(from, to),
   });
 }
 
