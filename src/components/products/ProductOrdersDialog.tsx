@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -8,11 +9,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { OrderDetail } from "@/components/orders/OrderDetail";
 import {
+  useDeleteStockAdjustment,
   useOrdersByProduct,
   useStockAdjustmentsByProduct,
 } from "@/hooks/useOrders";
+import { toast } from "sonner";
 import { cn, formatDateTime, formatNumber, formatVND, toISODate } from "@/lib/utils";
 import type {
   DateFilter,
@@ -78,6 +83,10 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
     return { from: fromDate || null, to: toDate || null };
   }, [dateMode, today, fromDate, toDate]);
 
+  const [pendingDelete, setPendingDelete] = useState<ProductStockAdjustRow | null>(
+    null,
+  );
+  const deleteAdjust = useDeleteStockAdjustment();
   const productId = open && product ? product.id : null;
   const { data: orderRows = [], isLoading } = useOrdersByProduct(
     productId,
@@ -142,6 +151,17 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
     (s, r) => s + (r.kind === "order" ? r.o.total : 0),
     0,
   );
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    try {
+      await deleteAdjust.mutateAsync(pendingDelete.movement_id);
+      toast.success("Đã xoá điều chỉnh kho");
+      setPendingDelete(null);
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
 
   return (
     <>
@@ -230,6 +250,7 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
                       <TH className="text-right">Tồn sau</TH>
                       <TH className="text-right">Đơn giá</TH>
                       <TH className="text-right">Thành tiền</TH>
+                      <TH className="w-10"></TH>
                     </TR>
                   </THead>
                   <TBody>
@@ -296,6 +317,20 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
                             {stockCell}
                             <TD className="text-right text-neutral-400">-</TD>
                             <TD className="text-right text-neutral-400">-</TD>
+                            <TD onClick={(e) => e.stopPropagation()}>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => setPendingDelete(row.a)}
+                                title={
+                                  isInit
+                                    ? "Xoá tồn đầu kỳ"
+                                    : "Xoá điều chỉnh kho"
+                                }
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </TD>
                           </TR>
                         );
                       }
@@ -337,6 +372,7 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
                           <TD className="text-right tabular-nums font-medium">
                             {formatVND(r.total)}
                           </TD>
+                          <TD />
                         </TR>
                       );
                     })}
@@ -362,6 +398,7 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
                       <TD className="text-right tabular-nums">
                         {formatVND(tabTotalValue)}
                       </TD>
+                      <TD />
                     </TR>
                   </TBody>
                 </Table>
@@ -423,6 +460,28 @@ export function ProductOrdersDialog({ open, onOpenChange, product }: Props) {
           )}
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={pendingDelete != null}
+        onOpenChange={(v) => !v && setPendingDelete(null)}
+        title={
+          pendingDelete?.type === "init"
+            ? "Xoá tồn đầu kỳ?"
+            : "Xoá điều chỉnh kho?"
+        }
+        message={
+          pendingDelete
+            ? `${pendingDelete.note ?? "Điều chỉnh tồn kho"}\n` +
+              `Tồn kho sẽ thay đổi ${pendingDelete.qty_change > 0 ? "-" : "+"}` +
+              `${formatNumber(Math.abs(pendingDelete.qty_change))} ${product.unit}.\n` +
+              `Thao tác này không hoàn tác được.`
+            : undefined
+        }
+        confirmLabel="Xoá"
+        destructive
+        busy={deleteAdjust.isPending}
+        onConfirm={confirmDelete}
+      />
 
       <OrderDetail
         open={detailId != null}

@@ -9,6 +9,7 @@ import {
   listOrders,
   listOrdersByContact,
   listOrdersByProduct,
+  deleteStockAdjustment,
   listStockAdjustmentsByProduct,
   payOrderDebt,
   type DateFilter,
@@ -75,6 +76,18 @@ export function useStockAdjustmentsByProduct(
         ? listStockAdjustmentsByProduct(productId, dateFilter)
         : Promise.resolve([]),
     enabled: productId != null,
+  });
+}
+
+export function useDeleteStockAdjustment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (movementId: number) => deleteStockAdjustment(movementId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY });
+      qc.invalidateQueries({ queryKey: ["products"] });
+      qc.invalidateQueries({ queryKey: ["reports"] });
+    },
   });
 }
 

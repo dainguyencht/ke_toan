@@ -806,6 +806,38 @@ export async function listStockAdjustmentsByProduct(
 }
 
 /**
+ * Xoá 1 biến động kho KHÔNG gắn phiếu (kiểm kho/điều chỉnh tay/tồn đầu kỳ) khi
+ * user lỡ điều chỉnh sai. Chỉ cho xoá loại này - biến động của phiếu phải huỷ
+ * phiếu chứ không xoá lẻ, nếu không tồn sẽ lệch với phiếu.
+ * Sau khi xoá, dựng lại cache stock_qty từ SUM(stock_movements) cho variant đó
+ * (stock_movements là source of truth) thay vì trừ ngược - tự lành nếu cache lệch.
+ */
+export async function deleteStockAdjustment(movementId: number): Promise<void> {
+  const db = await getDb();
+  const rows = await db.select<
+    { variant_id: number; ref_table: string | null }[]
+  >("SELECT variant_id, ref_table FROM stock_movements WHERE id = ?", [
+    movementId,
+  ]);
+  if (rows.length === 0) throw new Error("Không tìm thấy biến động kho này");
+  const { variant_id, ref_table } = rows[0];
+  if (ref_table === "orders") {
+    throw new Error(
+      "Biến động này thuộc một phiếu - hãy huỷ phiếu thay vì xoá riêng",
+    );
+  }
+
+  await db.execute("DELETE FROM stock_movements WHERE id = ?", [movementId]);
+  await db.execute(
+    `UPDATE product_variants
+     SET stock_qty = COALESCE(
+       (SELECT SUM(qty_change) FROM stock_movements WHERE variant_id = ?), 0)
+     WHERE id = ?`,
+    [variant_id, variant_id],
+  );
+}
+
+/**
  * Danh sách phiếu của 1 đối tác: phiếu bán cho khách hàng, phiếu nhập từ NCC.
  * Bỏ qua phiếu đã huỷ.
  */
