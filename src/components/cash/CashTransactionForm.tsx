@@ -17,6 +17,7 @@ import {
 } from "@/hooks/useCash";
 import { cn, dateTimeLocalToDb, toDateTimeLocalValue } from "@/lib/utils";
 import type { CashRow } from "@/db/cash";
+import type { CashMethod } from "@/domain/types";
 import { toast } from "sonner";
 
 const PRESETS_IN = ["Thu công nợ KH", "Vốn chủ thêm vào", "Khác"];
@@ -39,6 +40,7 @@ type Props = {
 
 type FormState = {
   type: "in" | "out";
+  method: CashMethod;
   amount: string;
   category: string;
   customCategory: string;
@@ -48,6 +50,7 @@ type FormState = {
 
 const emptyForm = (): FormState => ({
   type: "out",
+  method: "cash",
   amount: "",
   category: "",
   customCategory: "",
@@ -76,6 +79,7 @@ export function CashTransactionForm({
       const known = presets.includes(cat) && cat !== "Khác";
       setForm({
         type: editTransaction.type,
+        method: editTransaction.method ?? "cash",
         amount: String(editTransaction.amount),
         category: known ? cat : "Khác",
         customCategory: known ? "" : cat,
@@ -119,6 +123,7 @@ export function CashTransactionForm({
 
     const input = {
       type: form.type,
+      method: form.method,
       amount,
       category: finalCategory,
       note: form.note.trim() || null,
@@ -144,7 +149,7 @@ export function CashTransactionForm({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {isEdit ? "Sửa giao dịch tiền mặt" : "Ghi giao dịch tiền mặt"}
+            {isEdit ? "Sửa giao dịch sổ quỹ" : "Ghi giao dịch sổ quỹ"}
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -173,6 +178,34 @@ export function CashTransactionForm({
               )}
             >
               Chi (−)
+            </button>
+          </div>
+
+          {/* Hình thức thanh toán */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => set("method", "cash")}
+              className={cn(
+                "py-2 rounded-md font-medium border text-sm",
+                form.method === "cash"
+                  ? "bg-amber-50 border-amber-300 text-amber-700"
+                  : "bg-white border-neutral-300 text-neutral-500",
+              )}
+            >
+              Tiền mặt
+            </button>
+            <button
+              type="button"
+              onClick={() => set("method", "transfer")}
+              className={cn(
+                "py-2 rounded-md font-medium border text-sm",
+                form.method === "transfer"
+                  ? "bg-sky-50 border-sky-300 text-sky-700"
+                  : "bg-white border-neutral-300 text-neutral-500",
+              )}
+            >
+              Chuyển khoản
             </button>
           </div>
 

@@ -1,6 +1,6 @@
 import { getDb } from "./client";
 import { dbDateTime } from "@/lib/utils";
-import type { Customer, Supplier } from "@/domain/types";
+import type { CashMethod, Customer, Supplier } from "@/domain/types";
 
 export type ContactKind = "customer" | "supplier";
 export type Contact = Customer | Supplier;
@@ -95,6 +95,7 @@ export async function payDebt(
   amount: number,
   note?: string | null,
   createdAt?: string,
+  method: CashMethod = "cash",
 ): Promise<void> {
   if (amount <= 0) throw new Error("Số tiền phải > 0");
 
@@ -114,10 +115,11 @@ export async function payDebt(
   const finalNote = note?.trim() || `${category}: ${c.name}`;
 
   await db.execute(
-    `INSERT INTO cash_transactions (type, amount, category, ref_table, ref_id, note, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO cash_transactions (type, method, amount, category, ref_table, ref_id, note, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       cashType,
+      method,
       amount,
       category,
       table,

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Plus, ShoppingCart, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import type { CashMethod } from "@/domain/types";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OrderDetail } from "@/components/orders/OrderDetail";
@@ -11,7 +12,7 @@ import { ReturnForm, type ReturnKind } from "@/components/orders/ReturnForm";
 import { InvoicePreviewDialog } from "@/components/orders/InvoicePreviewDialog";
 import { useOrder, useOrders } from "@/hooks/useOrders";
 import { cn, formatVND, formatDate, toISODate } from "@/lib/utils";
-import type { DateFilter, OrderListRow } from "@/db/orders";
+import type { DateFilter, OrderListRowWithMethod } from "@/db/orders";
 import type { OrderStatus, OrderType } from "@/domain/types";
 
 const STATUS_LABEL: Record<OrderStatus, { text: string; tone: string }> = {
@@ -39,6 +40,7 @@ export default function Orders() {
   const [activeTab, setActiveTab] = useState<"all" | OrderType>("sale");
 
   const [dateMode, setDateMode] = useState<DateMode>("all");
+  const [methodFilter, setMethodFilter] = useState<CashMethod | "all">("all");
   const today = toISODate(new Date());
   const [fromDate, setFromDate] = useState<string>(today);
   const [toDate, setToDate] = useState<string>(today);
@@ -125,6 +127,27 @@ export default function Orders() {
             />
           </div>
         )}
+        <div className="inline-flex rounded-md border border-neutral-300 bg-white p-0.5 ml-auto">
+          {(["all", "cash", "transfer"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMethodFilter(m)}
+              className={cn(
+                "px-3 py-1 text-sm rounded whitespace-nowrap",
+                methodFilter === m
+                  ? "bg-brand-500 text-white"
+                  : "text-neutral-600 hover:bg-neutral-100",
+              )}
+            >
+              {m === "all"
+                ? "Mọi hình thức"
+                : m === "cash"
+                  ? "Tiền mặt"
+                  : "Chuyển khoản"}
+            </button>
+          ))}
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
@@ -135,16 +158,16 @@ export default function Orders() {
           <TabsTrigger value="return">Trả hàng</TabsTrigger>
         </TabsList>
         <TabsContent value="all">
-          <OrdersTable type="all" dateFilter={dateFilter} onRowClick={setDetailId} />
+          <OrdersTable type="all" dateFilter={dateFilter} method={methodFilter} onRowClick={setDetailId} />
         </TabsContent>
         <TabsContent value="purchase">
-          <OrdersTable type="purchase" dateFilter={dateFilter} onRowClick={setDetailId} />
+          <OrdersTable type="purchase" dateFilter={dateFilter} method={methodFilter} onRowClick={setDetailId} />
         </TabsContent>
         <TabsContent value="sale">
-          <OrdersTable type="sale" dateFilter={dateFilter} onRowClick={setDetailId} />
+          <OrdersTable type="sale" dateFilter={dateFilter} method={methodFilter} onRowClick={setDetailId} />
         </TabsContent>
         <TabsContent value="return">
-          <OrdersTable type="return" dateFilter={dateFilter} onRowClick={setDetailId} />
+          <OrdersTable type="return" dateFilter={dateFilter} method={methodFilter} onRowClick={setDetailId} />
         </TabsContent>
       </Tabs>
 
@@ -178,13 +201,15 @@ export default function Orders() {
 function OrdersTable({
   type,
   dateFilter,
+  method,
   onRowClick,
 }: {
   type: "all" | OrderType;
   dateFilter: DateFilter;
+  method: CashMethod | "all";
   onRowClick: (id: number) => void;
 }) {
-  const { data, isLoading, error } = useOrders(type, dateFilter);
+  const { data, isLoading, error } = useOrders(type, dateFilter, method);
 
   if (error) return <div className="p-6 text-red-600">Lỗi: {(error as Error).message}</div>;
   if (isLoading) return <div className="p-6 text-neutral-500">Đang tải...</div>;
@@ -205,6 +230,7 @@ function OrdersTable({
             <TH>Ngày</TH>
             <TH>Loại</TH>
             <TH>Đối tác</TH>
+            <TH>Hình thức</TH>
             <TH className="text-center">Số dòng</TH>
             <TH className="text-right">Tổng tiền</TH>
             <TH className="text-right">Đã trả</TH>
@@ -212,7 +238,7 @@ function OrdersTable({
           </TR>
         </THead>
         <TBody>
-          {data.map((o: OrderListRow) => {
+          {data.map((o: OrderListRowWithMethod) => {
             const st = STATUS_LABEL[o.status];
             return (
               <TR
@@ -224,6 +250,24 @@ function OrdersTable({
                 <TD className="text-neutral-600">{formatDate(o.created_at)}</TD>
                 <TD>{TYPE_LABEL[o.type]}</TD>
                 <TD>{o.partner_name ?? <span className="text-neutral-400">-</span>}</TD>
+                <TD>
+                  {o.cash_method ? (
+                    <span
+                      className={cn(
+                        "inline-flex whitespace-nowrap px-2 py-0.5 rounded text-xs font-medium",
+                        o.cash_method === "transfer"
+                          ? "bg-sky-50 text-sky-700"
+                          : "bg-amber-50 text-amber-700",
+                      )}
+                    >
+                      {o.cash_method === "transfer" ? "Chuyển khoản" : "Tiền mặt"}
+                    </span>
+                  ) : (
+                    <span className="text-neutral-400 text-xs" title="Phiếu chưa phát sinh tiền (nợ toàn bộ)">
+                      Chưa thu
+                    </span>
+                  )}
+                </TD>
                 <TD className="text-center">{o.item_count}</TD>
                 <TD className="text-right font-medium">{formatVND(o.total)}</TD>
                 <TD className="text-right text-neutral-600">{formatVND(o.paid)}</TD>

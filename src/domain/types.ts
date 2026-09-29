@@ -110,9 +110,14 @@ export type StockMovement = {
   created_at: string;
 };
 
+/** Hình thức thanh toán của giao dịch sổ quỹ */
+export type CashMethod = "cash" | "transfer";
+
 export type CashTransaction = {
   id: number;
   type: "in" | "out";
+  /** Tiền mặt hay chuyển khoản. Giao dịch cũ mặc định 'cash'. */
+  method: CashMethod;
   amount: number;
   category: string | null;
   ref_table: string | null;

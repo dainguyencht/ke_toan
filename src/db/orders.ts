@@ -3,6 +3,7 @@ import type {
   Order,
   OrderItem,
   OrderStatus,
+  CashMethod,
   OrderType,
   ProductUnit,
   StockMovementType,
@@ -16,6 +17,8 @@ export type OrderListRow = Order & {
 };
 
 export type PurchaseInput = {
+  /** Hình thức thanh toán ghi vào sổ quỹ. Mặc định 'cash'. */
+  method?: CashMethod;
   supplier_id: number | null;
   note?: string | null;
   paid: number; // số đã trả NCC
@@ -36,6 +39,8 @@ export type PurchaseLine = {
 };
 
 export type SaleInput = {
+  /** Hình thức thanh toán ghi vào sổ quỹ. Mặc định 'cash'. */
+  method?: CashMethod;
   customer_id: number | null;
   note?: string | null;
   paid: number; // số tiền KH đã thanh toán
@@ -237,9 +242,15 @@ export async function createPurchase(input: PurchaseInput): Promise<number> {
   // 3. Sổ quỹ: ghi chi cho số tiền thực đã trả (có thể > total nếu trả dư trừ nợ cũ)
   if (cashOut > 0) {
     await db.execute(
-      `INSERT INTO cash_transactions (type, amount, category, ref_table, ref_id, note, created_at)
-       VALUES ('out', ?, 'Trả NCC', 'orders', ?, ?, ?)`,
-      [cashOut, orderId, `Trả tiền phiếu ${code}`, createdAt],
+      `INSERT INTO cash_transactions (type, method, amount, category, ref_table, ref_id, note, created_at)
+       VALUES ('out', ?, ?, 'Trả NCC', 'orders', ?, ?, ?)`,
+      [
+        input.method ?? "cash",
+        cashOut,
+        orderId,
+        `Trả tiền phiếu ${code}`,
+        createdAt,
+      ],
     );
   }
 
@@ -369,9 +380,15 @@ export async function createSale(input: SaleInput): Promise<number> {
   // 3. Sổ quỹ: ghi thu cho số tiền thực đã nhận (có thể > total nếu thu dư trừ nợ cũ)
   if (cashIn > 0) {
     await db.execute(
-      `INSERT INTO cash_transactions (type, amount, category, ref_table, ref_id, note, created_at)
-       VALUES ('in', ?, 'Thu bán hàng', 'orders', ?, ?, ?)`,
-      [cashIn, orderId, `Thu tiền phiếu ${code}`, createdAt],
+      `INSERT INTO cash_transactions (type, method, amount, category, ref_table, ref_id, note, created_at)
+       VALUES ('in', ?, ?, 'Thu bán hàng', 'orders', ?, ?, ?)`,
+      [
+        input.method ?? "cash",
+        cashIn,
+        orderId,
+        `Thu tiền phiếu ${code}`,
+        createdAt,
+      ],
     );
   }
 
@@ -401,6 +418,8 @@ export type ReturnLine = {
 };
 
 export type ReturnInput = {
+  /** Hình thức thanh toán ghi vào sổ quỹ. Mặc định 'cash'. */
+  method?: CashMethod;
   /** "customer": KH trả lại cho mình; "supplier": mình trả lại NCC */
   kind: "customer" | "supplier";
   contact_id: number;
@@ -543,9 +562,17 @@ export async function createReturn(input: ReturnInput): Promise<number> {
       ? `Hoàn tiền KH theo phiếu ${code}`
       : `NCC hoàn tiền theo phiếu ${code}`;
     await db.execute(
-      `INSERT INTO cash_transactions (type, amount, category, ref_table, ref_id, note, created_at)
-       VALUES (?, ?, ?, 'orders', ?, ?, ?)`,
-      [cashType, paid, category, orderId, noteText, createdAt],
+      `INSERT INTO cash_transactions (type, method, amount, category, ref_table, ref_id, note, created_at)
+       VALUES (?, ?, ?, ?, 'orders', ?, ?, ?)`,
+      [
+        cashType,
+        input.method ?? "cash",
+        paid,
+        category,
+        orderId,
+        noteText,
+        createdAt,
+      ],
     );
   }
 
@@ -578,6 +605,7 @@ export async function payOrderDebt(
   orderId: number,
   amount: number,
   note?: string | null,
+  method: CashMethod = "cash",
 ): Promise<void> {
   if (amount <= 0) throw new Error("Số tiền phải > 0");
 
@@ -610,9 +638,9 @@ export async function payOrderDebt(
   const category = `${verb} đơn hàng`;
   const finalNote = note?.trim() || `${verb} ${order.code}`;
   await db.execute(
-    `INSERT INTO cash_transactions (type, amount, category, ref_table, ref_id, note)
-     VALUES (?, ?, ?, 'orders', ?, ?)`,
-    [cashType, amount, category, orderId, finalNote],
+    `INSERT INTO cash_transactions (type, method, amount, category, ref_table, ref_id, note)
+     VALUES (?, ?, ?, ?, 'orders', ?, ?)`,
+    [cashType, method, amount, category, orderId, finalNote],
   );
 
   // 3. Giảm công nợ contact
@@ -636,17 +664,31 @@ export type DateFilter = {
   to?: string | null;
 };
 
+/** Dòng đơn hàng kèm hình thức thanh toán lấy từ phiếu quỹ liên kết. */
+export type OrderListRowWithMethod = OrderListRow & {
+  /** null = phiếu chưa phát sinh tiền (nợ toàn bộ). */
+  cash_method: CashMethod | null;
+};
+
 export async function listOrders(
   type: OrderType | "all" = "all",
   dateFilter: DateFilter = {},
   limit = 500,
-): Promise<OrderListRow[]> {
+  method: CashMethod | "all" = "all",
+): Promise<OrderListRowWithMethod[]> {
   const db = await getDb();
   const conds = ["o.status != 'cancelled'"];
   const params: unknown[] = [];
   if (type !== "all") {
     conds.push("o.type = ?");
     params.push(type);
+  }
+  if (method !== "all") {
+    conds.push(
+      `EXISTS (SELECT 1 FROM cash_transactions ct
+               WHERE ct.ref_table = 'orders' AND ct.ref_id = o.id AND ct.method = ?)`,
+    );
+    params.push(method);
   }
   if (dateFilter.from) {
     conds.push("date(o.created_at) >= date(?)");
@@ -661,7 +703,10 @@ export async function listOrders(
     SELECT
       o.*,
       COALESCE(c.name, s.name) AS partner_name,
-      (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) AS item_count
+      (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) AS item_count,
+      (SELECT method FROM cash_transactions
+        WHERE ref_table = 'orders' AND ref_id = o.id
+        ORDER BY id LIMIT 1) AS cash_method
     FROM orders o
     LEFT JOIN customers c ON c.id = o.customer_id
     LEFT JOIN suppliers s ON s.id = o.supplier_id
@@ -669,7 +714,7 @@ export async function listOrders(
     ORDER BY o.created_at DESC
     LIMIT ?
   `;
-  return await db.select<OrderListRow[]>(sql, params);
+  return await db.select<OrderListRowWithMethod[]>(sql, params);
 }
 
 /**
@@ -972,10 +1017,27 @@ export async function cancelOrder(id: number): Promise<void> {
       : order.type === "sale"
         ? "Hoàn tiền KH"
         : "NCC hoàn tiền";
+    // Dòng hoàn phải cùng hình thức với tiền đã thu/trả lúc tạo phiếu, nếu
+    // không tổng theo Tiền mặt/Chuyển khoản sẽ lệch (vd phiếu thu chuyển khoản
+    // mà hoàn bằng tiền mặt). Sửa phiếu = huỷ + tạo mới nên dính rất thường.
+    const methodRows = await db.select<{ method: CashMethod }[]>(
+      `SELECT method FROM cash_transactions
+       WHERE ref_table = 'orders' AND ref_id = ?
+       ORDER BY id LIMIT 1`,
+      [id],
+    );
+    const reverseMethod: CashMethod = methodRows[0]?.method ?? "cash";
     await db.execute(
-      `INSERT INTO cash_transactions (type, amount, category, ref_table, ref_id, note)
-       VALUES (?, ?, ?, 'orders', ?, ?)`,
-      [cashReverseType, order.paid, category, id, `Hủy phiếu ${order.code}`],
+      `INSERT INTO cash_transactions (type, method, amount, category, ref_table, ref_id, note)
+       VALUES (?, ?, ?, ?, 'orders', ?, ?)`,
+      [
+        cashReverseType,
+        reverseMethod,
+        order.paid,
+        category,
+        id,
+        `Hủy phiếu ${order.code}`,
+      ],
     );
   }
 
@@ -1031,12 +1093,25 @@ export type OrderEditLine = {
 
 export async function loadOrderForEdit(
   orderId: number,
-): Promise<{ order: OrderListRow; lines: OrderEditLine[] }> {
+): Promise<{
+  order: OrderListRow;
+  lines: OrderEditLine[];
+  /** Hình thức thanh toán của phiếu cũ, để sửa phiếu không làm mất chuyển khoản. */
+  cash_method: CashMethod;
+}> {
   const order = await getOrderById(orderId);
   if (!order) throw new Error("Không tìm thấy đơn");
 
   const items = await getOrderItems(orderId);
   const db = await getDb();
+
+  const methodRows = await db.select<{ method: CashMethod }[]>(
+    `SELECT method FROM cash_transactions
+     WHERE ref_table = 'orders' AND ref_id = ?
+     ORDER BY id LIMIT 1`,
+    [orderId],
+  );
+  const cashMethod: CashMethod = methodRows[0]?.method ?? "cash";
 
   const lines: OrderEditLine[] = await Promise.all(
     items.map(async (it) => {
@@ -1094,7 +1169,7 @@ export async function loadOrderForEdit(
     }),
   );
 
-  return { order, lines };
+  return { order, lines, cash_method: cashMethod };
 }
 
 export async function getOrderItems(orderId: number): Promise<

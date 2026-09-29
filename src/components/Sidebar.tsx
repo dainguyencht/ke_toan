@@ -15,7 +15,7 @@ const NAV = [
   { to: "/products", label: "Sản phẩm", icon: Package, title: "Quản lý sản phẩm và tồn kho" },
   { to: "/orders", label: "Đơn hàng", icon: ShoppingCart, title: "Phiếu nhập, phiếu bán, đơn trả" },
   { to: "/customers", label: "Khách & NCC", icon: Users, title: "Khách hàng và Nhà cung cấp" },
-  { to: "/cashbook", label: "Sổ quỹ", icon: Wallet, title: "Thu chi tiền mặt" },
+  { to: "/cashbook", label: "Sổ quỹ", icon: Wallet, title: "Thu chi tiền mặt và chuyển khoản" },
   { to: "/reports", label: "Báo cáo", icon: BarChart3, title: "Doanh thu, lãi gộp, tồn kho, công nợ" },
   { to: "/settings", label: "Cài đặt", icon: SettingsIcon, title: "Cấu hình, backup, restore" },
 ];

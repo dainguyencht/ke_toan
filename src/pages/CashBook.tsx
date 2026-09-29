@@ -16,11 +16,13 @@ import {
 } from "@/components/period-filter";
 import {
   useCashSummary,
+  useUpdateCashTransactionMethod,
   useCashTransactions,
   useDeleteCashTransaction,
 } from "@/hooks/useCash";
 import { cn, formatDateTime, formatVND } from "@/lib/utils";
 import type { CashFilter, CashRow } from "@/db/cash";
+import type { CashMethod } from "@/domain/types";
 import { toast } from "sonner";
 
 const CASH_MODES: PeriodMode[] = [
@@ -44,16 +46,30 @@ export default function CashBook() {
     title: string;
     message: string;
   } | null>(null);
+  const [methodFilter, setMethodFilter] = useState<CashMethod | "all">("all");
+  const updateMethod = useUpdateCashTransactionMethod();
 
   const filter = useMemo<CashFilter>(() => {
     const { from, to } = periodToDates(period);
-    return { from, to, type: typeFilter };
-  }, [period, typeFilter]);
+    return { from, to, type: typeFilter, method: methodFilter };
+  }, [period, typeFilter, methodFilter]);
 
   const { data: summary } = useCashSummary(filter);
   const { data: transactions, isLoading } = useCashTransactions(filter);
-  const { data: allTime } = useCashSummary({});
+  const { data: allTime } = useCashSummary({ method: methodFilter });
   const del = useDeleteCashTransaction();
+
+  const handleToggleMethod = async (t: CashRow) => {
+    const next: CashMethod = t.method === "transfer" ? "cash" : "transfer";
+    try {
+      await updateMethod.mutateAsync({ id: t.id, method: next });
+      toast.success(
+        next === "transfer" ? "Đã đổi sang Chuyển khoản" : "Đã đổi sang Tiền mặt",
+      );
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
 
   const handleDelete = (t: CashRow) => {
     const label = `${t.category} - ${formatVND(t.amount)}`;
@@ -92,7 +108,7 @@ export default function CashBook() {
         <div>
           <h1 className="text-2xl font-semibold">Sổ quỹ</h1>
           <p className="text-sm text-neutral-500 mt-1">
-            Thu/chi tiền mặt, tự động ghi từ đơn hàng + ghi tay
+            Thu/chi tiền mặt & chuyển khoản, tự động ghi từ đơn hàng + ghi tay
           </p>
         </div>
         {tab === "transactions" && (
@@ -168,6 +184,16 @@ export default function CashBook() {
             <TabsTrigger value="out">Chỉ chi</TabsTrigger>
           </TabsList>
         </Tabs>
+        <Tabs
+          value={methodFilter}
+          onValueChange={(v) => setMethodFilter(v as CashMethod | "all")}
+        >
+          <TabsList>
+            <TabsTrigger value="all">Mọi hình thức</TabsTrigger>
+            <TabsTrigger value="cash">Tiền mặt</TabsTrigger>
+            <TabsTrigger value="transfer">Chuyển khoản</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
       {/* Bảng giao dịch */}
@@ -184,6 +210,7 @@ export default function CashBook() {
               <TR>
                 <TH>Thời gian</TH>
                 <TH>Loại</TH>
+                <TH>Hình thức</TH>
                 <TH>Danh mục</TH>
                 <TH>Nguồn</TH>
                 <TH>Ghi chú</TH>
@@ -208,6 +235,25 @@ export default function CashBook() {
                     >
                       {t.type === "in" ? "Thu" : "Chi"}
                     </span>
+                  </TD>
+                  <TD>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleMethod(t)}
+                      disabled={updateMethod.isPending}
+                      title={`Bấm để đổi sang ${
+                        t.method === "transfer" ? "Tiền mặt" : "Chuyển khoản"
+                      }`}
+                      className={cn(
+                        "inline-flex whitespace-nowrap px-2 py-0.5 rounded text-xs font-medium",
+                        "hover:ring-1 hover:ring-offset-1 disabled:opacity-50",
+                        t.method === "transfer"
+                          ? "bg-sky-50 text-sky-700 hover:ring-sky-300"
+                          : "bg-amber-50 text-amber-700 hover:ring-amber-300",
+                      )}
+                    >
+                      {t.method === "transfer" ? "Chuyển khoản" : "Tiền mặt"}
+                    </button>
                   </TD>
                   <TD>{t.category ?? "-"}</TD>
                   <TD className="text-xs text-neutral-500">

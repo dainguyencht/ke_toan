@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getDb } from "@/db/client";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import {
   Download,
@@ -159,8 +160,21 @@ export default function Settings() {
         filters: [{ name: "SQLite Database", extensions: ["db"] }],
       });
       if (!target) return;
-      const saved = await invoke<string>("backup_db", { target });
-      toast.success(`Đã sao lưu vào: ${saved}`);
+      // DB chạy chế độ WAL: copy file .db không gom phần chưa checkpoint trong
+      // <db>-wal nên bản sao lưu sẽ thiếu dữ liệu mới nhất. VACUUM INTO tạo
+      // ảnh chụp nhất quán gồm cả WAL, gọn trong 1 file.
+      // VACUUM INTO từ chối ghi đè nên phải xoá file đích trước.
+      try {
+        await invoke("delete_file", { path: target });
+        const db = await getDb();
+        await db.execute(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
+      } catch (vacuumErr) {
+        // Dự phòng: copy file kèm -wal/-shm. Kém gọn (nhiều file) nhưng vẫn đủ
+        // dữ liệu, hơn hẳn việc để backup thiếu phần chưa checkpoint.
+        console.warn("[backup] VACUUM INTO lỗi, chuyển sang copy file:", vacuumErr);
+        await invoke<string>("backup_db", { target });
+      }
+      toast.success(`Đã sao lưu vào: ${target}`);
       await loadDbInfo();
     } catch (err) {
       toast.error(`Lỗi backup: ${(err as Error).message}`);

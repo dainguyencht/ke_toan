@@ -1,10 +1,12 @@
 import { getDb } from "./client";
 import { dbDateTime } from "@/lib/utils";
-import type { CashTransaction } from "@/domain/types";
+import type { CashMethod, CashTransaction } from "@/domain/types";
 import { recomputeAndSetContactDebt } from "./orders";
 
 export type CashFilter = {
   type?: "in" | "out" | "all";
+  /** Lọc theo hình thức thanh toán. Bỏ trống hoặc 'all' = không lọc. */
+  method?: CashMethod | "all";
   from?: string | null; // ISO date 'YYYY-MM-DD'
   to?: string | null;
 };
@@ -15,6 +17,8 @@ export type CashRow = CashTransaction & {
 
 export type CashInput = {
   type: "in" | "out";
+  /** Mặc định 'cash' nếu bỏ trống. */
+  method?: CashMethod;
   amount: number;
   category: string | null;
   note?: string | null;
@@ -34,6 +38,10 @@ function buildFilterClause(f: CashFilter): { clause: string; params: unknown[] }
   if (f.type && f.type !== "all") {
     conds.push("type = ?");
     params.push(f.type);
+  }
+  if (f.method && f.method !== "all") {
+    conds.push("method = ?");
+    params.push(f.method);
   }
   if (f.from) {
     conds.push("date(created_at) >= date(?)");
@@ -113,10 +121,11 @@ export async function createCashTransaction(input: CashInput): Promise<number> {
   const db = await getDb();
   if (input.amount <= 0) throw new Error("Số tiền phải > 0");
   const result = await db.execute(
-    `INSERT INTO cash_transactions (type, amount, category, note, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO cash_transactions (type, method, amount, category, note, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
     [
       input.type,
+      input.method ?? "cash",
       input.amount,
       input.category ?? null,
       input.note ?? null,
@@ -253,10 +262,11 @@ export async function updateCashTransaction(
   }
   await db.execute(
     `UPDATE cash_transactions
-        SET type = ?, amount = ?, category = ?, note = ?, created_at = ?
+        SET type = ?, method = ?, amount = ?, category = ?, note = ?, created_at = ?
       WHERE id = ?`,
     [
       input.type,
+      input.method ?? "cash",
       input.amount,
       input.category ?? null,
       input.note ?? null,
@@ -264,6 +274,24 @@ export async function updateCashTransaction(
       id,
     ],
   );
+}
+
+/**
+ * Đổi riêng hình thức thanh toán của 1 giao dịch - áp dụng cho MỌI giao dịch,
+ * kể cả giao dịch tự sinh từ đơn hàng / thu-trả nợ (giống updateCashTransactionDate).
+ * Cần thiết vì tiền thu bán hàng có thể là chuyển khoản, mà phiếu tự sinh
+ * không sửa được qua form thường.
+ */
+export async function updateCashTransactionMethod(
+  id: number,
+  method: CashMethod,
+): Promise<void> {
+  const db = await getDb();
+  const res = await db.execute(
+    "UPDATE cash_transactions SET method = ? WHERE id = ?",
+    [method, id],
+  );
+  if (res.rowsAffected === 0) throw new Error("Không tìm thấy giao dịch");
 }
 
 /** Danh mục thu/chi do người dùng tự thêm — lưu JSON array trong app_settings. */

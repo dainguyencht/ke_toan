@@ -17,17 +17,25 @@ import {
   type ReturnInput,
   type SaleInput,
 } from "@/db/orders";
-import type { OrderType } from "@/domain/types";
+import type { CashMethod, OrderType } from "@/domain/types";
 
 const KEY = ["orders"] as const;
 
 export function useOrders(
   type: OrderType | "all" = "all",
   dateFilter: DateFilter = {},
+  method: CashMethod | "all" = "all",
 ) {
   return useQuery({
-    queryKey: [...KEY, "list", type, dateFilter.from ?? null, dateFilter.to ?? null],
-    queryFn: () => listOrders(type, dateFilter),
+    queryKey: [
+      ...KEY,
+      "list",
+      type,
+      dateFilter.from ?? null,
+      dateFilter.to ?? null,
+      method,
+    ],
+    queryFn: () => listOrders(type, dateFilter, 500, method),
   });
 }
 
@@ -118,11 +126,13 @@ export function usePayOrderDebt() {
       orderId,
       amount,
       note,
+      method,
     }: {
       orderId: number;
       amount: number;
       note?: string | null;
-    }) => payOrderDebt(orderId, amount, note),
+      method?: CashMethod;
+    }) => payOrderDebt(orderId, amount, note, method ?? "cash"),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEY });
       qc.invalidateQueries({ queryKey: ["contacts"] });

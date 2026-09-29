@@ -3,6 +3,7 @@ import { AlertTriangle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/ui/number-input";
+import type { CashMethod } from "@/domain/types";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -81,6 +82,7 @@ export function ReturnForm({
   const [sourceOrderId, setSourceOrderId] = useState<number | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [paid, setPaid] = useState("0");
+  const [method, setMethod] = useState<CashMethod>("cash");
   const [note, setNote] = useState("");
   const [orderDate, setOrderDate] = useState(() =>
     toDateTimeLocalValue(new Date()),
@@ -123,6 +125,7 @@ export function ReturnForm({
     setSourceOrderId(null);
     setLines([]);
     setPaid("0");
+    setMethod("cash");
     setNote("");
     setOrderDate(toDateTimeLocalValue(new Date()));
     setEditingCode(null);
@@ -153,11 +156,12 @@ export function ReturnForm({
     if (!open || !editOrderId) return;
     setLoadingSource(true);
     loadOrderForEdit(editOrderId)
-      .then(({ order: edOrder, lines: editLines }) => {
+      .then(({ order: edOrder, lines: editLines, cash_method }) => {
         setEditingCode(edOrder.code);
         const cid = isFromCustomer ? edOrder.customer_id : edOrder.supplier_id;
         if (cid != null) setContactId(cid);
         setPaid(String(edOrder.paid));
+        setMethod(cash_method);
         setNote(edOrder.note ?? "");
         setOrderDate(toDateTimeLocalValue(edOrder.created_at));
         setLines(
@@ -313,6 +317,7 @@ export function ReturnForm({
           source_order_id: sourceOrderId,
           note: note.trim() || null,
           paid: paidNum,
+          method,
           created_at: dateTimeLocalToDb(orderDate),
           items: itemsPayload,
         });
@@ -334,6 +339,7 @@ export function ReturnForm({
         source_order_id: sourceOrderId,
         note: note.trim() || null,
         paid: paidNum,
+        method,
         created_at: dateTimeLocalToDb(orderDate),
         items: itemsPayload,
       });
@@ -565,6 +571,29 @@ export function ReturnForm({
                   onChange={(n) => setPaid(String(n))}
                   className="text-right max-w-40 h-8"
                 />
+              </div>
+              {/* Hình thức thanh toán ghi vào sổ quỹ */}
+              <div className="flex items-center justify-between gap-2">
+                <Label className="shrink-0">Hình thức:</Label>
+                <div className="inline-flex rounded-md border border-neutral-300 bg-white p-0.5">
+                  {(["cash", "transfer"] as CashMethod[]).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setMethod(m)}
+                      className={cn(
+                        "px-3 py-1 text-sm rounded whitespace-nowrap",
+                        method === m
+                          ? m === "cash"
+                            ? "bg-amber-50 text-amber-700 font-medium"
+                            : "bg-sky-50 text-sky-700 font-medium"
+                          : "text-neutral-500 hover:bg-neutral-100",
+                      )}
+                    >
+                      {m === "cash" ? "Tiền mặt" : "Chuyển khoản"}
+                    </button>
+                  ))}
+                </div>
               </div>
               {debt > 0 && (
                 <div className="flex justify-between text-amber-600 font-medium">

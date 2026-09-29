@@ -10,7 +10,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { usePayOrderDebt } from "@/hooks/useOrders";
-import { formatVND } from "@/lib/utils";
+import { cn, formatVND } from "@/lib/utils";
+import type { CashMethod } from "@/domain/types";
 import type { OrderListRow } from "@/db/orders";
 import { toast } from "sonner";
 
@@ -23,6 +24,7 @@ type Props = {
 export function PayOrderDebtDialog({ open, onOpenChange, order }: Props) {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [method, setMethod] = useState<CashMethod>("cash");
   const pay = usePayOrderDebt();
 
   const remaining = order ? Math.max(0, order.total - order.paid) : 0;
@@ -34,6 +36,7 @@ export function PayOrderDebtDialog({ open, onOpenChange, order }: Props) {
     if (open && order) {
       setAmount(String(remaining));
       setNote("");
+      setMethod("cash");
     }
   }, [open, order, remaining]);
 
@@ -57,6 +60,7 @@ export function PayOrderDebtDialog({ open, onOpenChange, order }: Props) {
         orderId: order.id,
         amount: amountNum,
         note: note.trim() || null,
+        method,
       });
       toast.success(`Đã ${verb} ${formatVND(amountNum)} cho đơn ${order.code}`);
       onOpenChange(false);
@@ -114,6 +118,28 @@ export function PayOrderDebtDialog({ open, onOpenChange, order }: Props) {
             </strong>
           </div>
 
+
+          <Field label="Hình thức">
+            <div className="flex w-fit rounded-md border border-neutral-300 bg-white p-0.5">
+              {(["cash", "transfer"] as CashMethod[]).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMethod(m)}
+                  className={cn(
+                    "px-3 py-1 text-sm rounded whitespace-nowrap",
+                    method === m
+                      ? m === "cash"
+                        ? "bg-amber-50 text-amber-700 font-medium"
+                        : "bg-sky-50 text-sky-700 font-medium"
+                      : "text-neutral-500 hover:bg-neutral-100",
+                  )}
+                >
+                  {m === "cash" ? "Tiền mặt" : "Chuyển khoản"}
+                </button>
+              ))}
+            </div>
+          </Field>
           <Field label="Ghi chú (tùy chọn)">
             <Input
               value={note}

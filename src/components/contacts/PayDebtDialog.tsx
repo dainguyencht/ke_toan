@@ -11,7 +11,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { usePayDebt } from "@/hooks/useContacts";
-import { dateTimeLocalToDb, formatVND, toDateTimeLocalValue } from "@/lib/utils";
+import { cn, dateTimeLocalToDb, formatVND, toDateTimeLocalValue } from "@/lib/utils";
+import type { CashMethod } from "@/domain/types";
 import type { Contact, ContactKind } from "@/db/contacts";
 import { toast } from "sonner";
 
@@ -31,6 +32,7 @@ export function PayDebtDialog({ open, onOpenChange, kind, contact }: Props) {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [datetime, setDatetime] = useState("");
+  const [method, setMethod] = useState<CashMethod>("cash");
   const pay = usePayDebt(kind);
   const labels = LABEL[kind];
 
@@ -40,6 +42,7 @@ export function PayDebtDialog({ open, onOpenChange, kind, contact }: Props) {
       setAmount(contact.debt_amount > 0 ? String(contact.debt_amount) : "");
       setNote("");
       setDatetime(toDateTimeLocalValue(new Date()));
+      setMethod("cash");
     }
   }, [open, contact]);
 
@@ -65,6 +68,7 @@ export function PayDebtDialog({ open, onOpenChange, kind, contact }: Props) {
         amount: amountNum,
         note: note.trim() || null,
         createdAt: dateTimeLocalToDb(datetime),
+        method,
       });
       toast.success(`Đã ${labels.verb} ${formatVND(amountNum)}`);
       onOpenChange(false);
@@ -115,12 +119,12 @@ export function PayDebtDialog({ open, onOpenChange, kind, contact }: Props) {
               />
               {amountNum > debt && debt > 0 && (
                 <p className="text-xs text-neutral-500 mt-1">
-                  Trả vượt nợ {formatVND(amountNum - debt)} — ghi nhận trả trước.
+                  Trả vượt nợ {formatVND(amountNum - debt)} - ghi nhận trả trước.
                 </p>
               )}
               {amountNum > 0 && debt <= 0 && (
                 <p className="text-xs text-neutral-500 mt-1">
-                  Hiện không có công nợ — toàn bộ ghi nhận trả trước.
+                  Hiện không có công nợ - toàn bộ ghi nhận trả trước.
                 </p>
               )}
             </Field>
@@ -132,6 +136,28 @@ export function PayDebtDialog({ open, onOpenChange, kind, contact }: Props) {
               />
             </Field>
           </div>
+
+          <Field label="Hình thức">
+            <div className="flex w-fit rounded-md border border-neutral-300 bg-white p-0.5">
+              {(["cash", "transfer"] as CashMethod[]).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMethod(m)}
+                  className={cn(
+                    "px-3 py-1 text-sm rounded whitespace-nowrap",
+                    method === m
+                      ? m === "cash"
+                        ? "bg-amber-50 text-amber-700 font-medium"
+                        : "bg-sky-50 text-sky-700 font-medium"
+                      : "text-neutral-500 hover:bg-neutral-100",
+                  )}
+                >
+                  {m === "cash" ? "Tiền mặt" : "Chuyển khoản"}
+                </button>
+              ))}
+            </div>
+          </Field>
 
           <div className="text-sm text-neutral-600 flex justify-between border-t pt-2">
             <span>Dư nợ sau giao dịch:</span>

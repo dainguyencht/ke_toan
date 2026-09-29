@@ -1,3 +1,4 @@
+import type { CashMethod } from "@/domain/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createContact,
@@ -168,12 +169,14 @@ export function usePayDebt(kind: ContactKind) {
       amount,
       note,
       createdAt,
+      method,
     }: {
       contactId: number;
       amount: number;
       note?: string | null;
       createdAt?: string;
-    }) => payDebt(kind, contactId, amount, note, createdAt),
+      method?: CashMethod;
+    }) => payDebt(kind, contactId, amount, note, createdAt, method ?? "cash"),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEY(kind) });
       qc.invalidateQueries({ queryKey: ["cash"] });

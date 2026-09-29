@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
@@ -18,12 +18,53 @@ fn get_db_path(app: AppHandle) -> Result<String, String> {
     Ok(db_path(&app)?.to_string_lossy().to_string())
 }
 
+/// Đường dẫn file phụ của SQLite: <db>-wal, <db>-shm.
+fn sidecar(p: &Path, suffix: &str) -> PathBuf {
+    let mut s = p.as_os_str().to_os_string();
+    s.push(suffix);
+    PathBuf::from(s)
+}
+
+/// Copy DB KÈM file -wal/-shm.
+///
+/// DB chạy chế độ WAL: phần lớn thay đổi gần nhất nằm trong <db>-wal và chỉ được
+/// gộp vào file .db khi checkpoint. Copy mỗi .db sẽ mất toàn bộ phần chưa
+/// checkpoint - bản sao lưu trông vẫn mở được nhưng thiếu dữ liệu mới nhất.
+/// Nếu nguồn không có -wal thì phải XOÁ -wal cũ ở đích, nếu không lần mở sau
+/// SQLite sẽ replay WAL cũ chồng lên DB vừa ghi đè.
+fn copy_db_with_wal(src: &Path, dst: &Path) -> Result<(), String> {
+    fs::copy(src, dst).map_err(|e| format!("Copy lỗi: {e}"))?;
+    for suffix in ["-wal", "-shm"] {
+        let s = sidecar(src, suffix);
+        let d = sidecar(dst, suffix);
+        if s.exists() {
+            fs::copy(&s, &d).map_err(|e| format!("Copy {suffix} lỗi: {e}"))?;
+        } else if d.exists() {
+            fs::remove_file(&d).map_err(|e| format!("Xoá {suffix} cũ lỗi: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
+/// Sao lưu bằng cách copy file, KÈM -wal/-shm. Dùng làm dự phòng khi
+/// `VACUUM INTO` ở frontend lỗi. Tạo ra nhiều file cạnh nhau nên kém gọn hơn
+/// VACUUM INTO, nhưng không mất dữ liệu.
 #[tauri::command]
 fn backup_db(app: AppHandle, target: String) -> Result<String, String> {
     let src = db_path(&app)?;
     let dst = PathBuf::from(&target);
-    fs::copy(&src, &dst).map_err(|e| format!("Copy lỗi: {e}"))?;
+    copy_db_with_wal(&src, &dst)?;
     Ok(target)
+}
+
+/// Xoá 1 file nếu có. Dùng trước `VACUUM INTO` vì lệnh này từ chối ghi đè.
+#[tauri::command]
+fn delete_file(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if p.exists() {
+        fs::remove_file(&p).map_err(|e| format!("Không xoá được file: {e}"))?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -33,12 +74,12 @@ fn restore_db(app: AppHandle, source: String) -> Result<(), String> {
     if !src.exists() {
         return Err(format!("File không tồn tại: {source}"));
     }
-    // Sao lưu DB hiện tại trước khi ghi đè
+    // Sao lưu DB hiện tại (kèm WAL) trước khi ghi đè
     let safety = dst.with_extension("db.before_restore");
     if dst.exists() {
-        fs::copy(&dst, &safety).map_err(|e| format!("Sao lưu hiện tại lỗi: {e}"))?;
+        copy_db_with_wal(&dst, &safety).map_err(|e| format!("Sao lưu hiện tại lỗi: {e}"))?;
     }
-    fs::copy(&src, &dst).map_err(|e| format!("Ghi đè lỗi: {e}"))?;
+    copy_db_with_wal(&src, &dst).map_err(|e| format!("Ghi đè lỗi: {e}"))?;
     Ok(())
 }
 
@@ -115,7 +156,7 @@ fn run_auto_backup(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())?
         .as_secs();
     let dst = backup_dir.join(format!("ke_toan_{ts}.db"));
-    fs::copy(&src, &dst).map_err(|e| format!("auto-backup copy: {e}"))?;
+    copy_db_with_wal(&src, &dst).map_err(|e| format!("auto-backup copy: {e}"))?;
 
     // Cắt bớt - chỉ giữ KEEP_BACKUPS bản mới nhất
     let mut entries: Vec<(PathBuf, u64)> = fs::read_dir(&backup_dir)
@@ -135,6 +176,9 @@ fn run_auto_backup(app: &AppHandle) -> Result<(), String> {
     entries.sort_by(|a, b| b.1.cmp(&a.1));
     for (path, _) in entries.into_iter().skip(KEEP_BACKUPS) {
         let _ = fs::remove_file(&path);
+        // Xoá kèm file phụ để không còn -wal/-shm mồ côi
+        let _ = fs::remove_file(sidecar(&path, "-wal"));
+        let _ = fs::remove_file(sidecar(&path, "-shm"));
     }
     Ok(())
 }
@@ -202,6 +246,12 @@ pub fn run() {
             sql: include_str!("../migrations/010_recompute_debts.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 11,
+            description: "cash_method",
+            sql: include_str!("../migrations/011_cash_method.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -225,6 +275,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_db_path,
             backup_db,
+            delete_file,
             restore_db,
             list_auto_backups,
             save_bytes,
@@ -232,4 +283,51 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp_dir(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("ke_toan_test_{name}"));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn copy_db_mang_theo_wal() {
+        let d = tmp_dir("wal");
+        let src = d.join("a.db");
+        let dst = d.join("b.db");
+        fs::write(&src, b"main").unwrap();
+        fs::write(sidecar(&src, "-wal"), b"wal-moi").unwrap();
+        fs::write(sidecar(&src, "-shm"), b"shm").unwrap();
+
+        copy_db_with_wal(&src, &dst).unwrap();
+
+        assert_eq!(fs::read(&dst).unwrap(), b"main");
+        // Thiếu bước này là mất dữ liệu chưa checkpoint
+        assert_eq!(fs::read(sidecar(&dst, "-wal")).unwrap(), b"wal-moi");
+        assert!(sidecar(&dst, "-shm").exists());
+    }
+
+    #[test]
+    fn nguon_khong_co_wal_thi_xoa_wal_cu_o_dich() {
+        let d = tmp_dir("stale");
+        let src = d.join("a.db");
+        let dst = d.join("b.db");
+        fs::write(&src, b"khoi-phuc").unwrap();
+        fs::write(&dst, b"cu").unwrap();
+        // WAL cũ của DB đang chạy: nếu giữ lại, SQLite sẽ replay đè lên bản khôi phục
+        fs::write(sidecar(&dst, "-wal"), b"wal-cu").unwrap();
+        fs::write(sidecar(&dst, "-shm"), b"shm-cu").unwrap();
+
+        copy_db_with_wal(&src, &dst).unwrap();
+
+        assert_eq!(fs::read(&dst).unwrap(), b"khoi-phuc");
+        assert!(!sidecar(&dst, "-wal").exists());
+        assert!(!sidecar(&dst, "-shm").exists());
+    }
 }

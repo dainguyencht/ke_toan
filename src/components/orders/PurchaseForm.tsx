@@ -3,6 +3,7 @@ import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/ui/number-input";
+import type { CashMethod } from "@/domain/types";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -63,6 +64,7 @@ export function PurchaseForm({
   const [lines, setLines] = useState<Line[]>([]);
   const [discount, setDiscount] = useState(0);
   const [paid, setPaid] = useState("0");
+  const [method, setMethod] = useState<CashMethod>("cash");
   const [note, setNote] = useState("");
   const [orderDate, setOrderDate] = useState(() =>
     toDateTimeLocalValue(new Date()),
@@ -81,6 +83,7 @@ export function PurchaseForm({
     setLines([]);
     setDiscount(0);
     setPaid("0");
+    setMethod("cash");
     setNote("");
     setOrderDate(toDateTimeLocalValue(new Date()));
     setEditingCode(null);
@@ -96,11 +99,12 @@ export function PurchaseForm({
     if (!open || !editOrderId) return;
     setLoadingEdit(true);
     loadOrderForEdit(editOrderId)
-      .then(({ order, lines: editLines }) => {
+      .then(({ order, lines: editLines, cash_method }) => {
         setEditingCode(order.code);
         setSupplierId(order.supplier_id);
         setDiscount(order.discount ?? 0);
         setPaid(String(order.paid));
+        setMethod(cash_method);
         setNote(order.note ?? "");
         setOrderDate(toDateTimeLocalValue(order.created_at));
         setLines(
@@ -214,6 +218,7 @@ export function PurchaseForm({
           supplier_id: supplierId,
           note: note.trim() || null,
           paid: paidNum,
+          method,
           discount: discountClamped,
           created_at: dateTimeLocalToDb(orderDate),
           items: lines.map((l) => {
@@ -242,6 +247,7 @@ export function PurchaseForm({
         supplier_id: supplierId,
         note: note.trim() || null,
         paid: paidNum,
+        method,
         discount: discountClamped,
         created_at: dateTimeLocalToDb(orderDate),
         items: lines.map((l) => {
@@ -455,6 +461,29 @@ export function PurchaseForm({
                   onChange={(n) => setPaid(String(n))}
                   className="text-right max-w-40 h-8"
                 />
+              </div>
+              {/* Hình thức thanh toán ghi vào sổ quỹ */}
+              <div className="flex items-center justify-between gap-2">
+                <Label className="shrink-0">Hình thức:</Label>
+                <div className="inline-flex rounded-md border border-neutral-300 bg-white p-0.5">
+                  {(["cash", "transfer"] as CashMethod[]).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setMethod(m)}
+                      className={cn(
+                        "px-3 py-1 text-sm rounded whitespace-nowrap",
+                        method === m
+                          ? m === "cash"
+                            ? "bg-amber-50 text-amber-700 font-medium"
+                            : "bg-sky-50 text-sky-700 font-medium"
+                          : "text-neutral-500 hover:bg-neutral-100",
+                      )}
+                    >
+                      {m === "cash" ? "Tiền mặt" : "Chuyển khoản"}
+                    </button>
+                  ))}
+                </div>
               </div>
               {supplierId && (
                 <div className="flex justify-between font-medium border-t pt-1.5">

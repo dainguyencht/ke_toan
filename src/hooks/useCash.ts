@@ -12,10 +12,12 @@ import {
   renameCustomCashCategory,
   updateCashTransaction,
   updateCashTransactionDate,
+  updateCashTransactionMethod,
   updateLinkedCash,
   type CashFilter,
   type CashInput,
 } from "@/db/cash";
+import type { CashMethod } from "@/domain/types";
 
 const KEY = ["cash"] as const;
 
@@ -69,6 +71,15 @@ export function useUpdateCashTransactionDate() {
   return useMutation({
     mutationFn: ({ id, createdAt }: { id: number; createdAt: string }) =>
       updateCashTransactionDate(id, createdAt),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}
+
+export function useUpdateCashTransactionMethod() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, method }: { id: number; method: CashMethod }) =>
+      updateCashTransactionMethod(id, method),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
 }
