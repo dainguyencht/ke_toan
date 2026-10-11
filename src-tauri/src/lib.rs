@@ -57,6 +57,12 @@ fn backup_db(app: AppHandle, target: String) -> Result<String, String> {
     Ok(target)
 }
 
+/// Tạo thư mục (kể cả cha) nếu chưa có.
+#[tauri::command]
+fn ensure_dir(path: String) -> Result<(), String> {
+    fs::create_dir_all(PathBuf::from(&path)).map_err(|e| format!("Không tạo được thư mục: {e}"))
+}
+
 /// Xoá 1 file nếu có. Dùng trước `VACUUM INTO` vì lệnh này từ chối ghi đè.
 #[tauri::command]
 fn delete_file(path: String) -> Result<(), String> {
@@ -140,6 +146,14 @@ fn list_auto_backups(app: AppHandle) -> Result<Vec<String>, String> {
     Ok(entries.into_iter().map(|(p, _)| p).collect())
 }
 
+/// `ke_toan_<chỉ số>.db` → true. Tên khác là bản ghim, không xoay vòng.
+fn is_auto_backup_name(name: &str) -> bool {
+    name.strip_prefix("ke_toan_")
+        .and_then(|rest| rest.strip_suffix(".db"))
+        .map(|ts| !ts.is_empty() && ts.bytes().all(|b| b.is_ascii_digit()))
+        .unwrap_or(false)
+}
+
 /// Tạo bản auto-backup. Chạy trong setup khi app khởi động.
 fn run_auto_backup(app: &AppHandle) -> Result<(), String> {
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -165,7 +179,9 @@ fn run_auto_backup(app: &AppHandle) -> Result<(), String> {
         .filter_map(|e| {
             let p = e.path();
             let n = p.file_name()?.to_string_lossy().to_string();
-            if !n.ends_with(".db") {
+            // Chỉ xoay vòng bản auto `ke_toan_<timestamp>.db`. File ghim tên khác
+            // (vd `ke_toan_truoc_gia_von_v0.1.42.db`) giữ vĩnh viễn.
+            if !is_auto_backup_name(&n) {
                 return None;
             }
             let m = e.metadata().ok()?.modified().ok()?;
@@ -258,6 +274,12 @@ pub fn run() {
             sql: include_str!("../migrations/012_stock_value.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 13,
+            description: "cost_backfill_log",
+            sql: include_str!("../migrations/013_cost_backfill_log.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -282,6 +304,7 @@ pub fn run() {
             get_db_path,
             backup_db,
             delete_file,
+            ensure_dir,
             restore_db,
             list_auto_backups,
             save_bytes,
@@ -294,6 +317,14 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ten_backup_ghim_khong_bi_xoay_vong() {
+        assert!(is_auto_backup_name("ke_toan_1791719495.db"));
+        assert!(!is_auto_backup_name("ke_toan_truoc_gia_von_v0.1.42.db"));
+        assert!(!is_auto_backup_name("ke_toan_.db"));
+        assert!(!is_auto_backup_name("ke_toan_123.db-wal"));
+    }
 
     fn tmp_dir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("ke_toan_test_{name}"));

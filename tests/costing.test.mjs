@@ -137,8 +137,10 @@ T("10. Bán quá tay (tồn âm) rồi nhập về");
   check("tồn âm", L.qty, -2);
   check("đơn bán quá tay vẫn chịu giá vốn 100k", L.itemCost(s), 100000);
   L.purchase([{ qty: 10, price: 300000 }]);
-  check("giá vốn = (4tr − 1,2tr)/8 - bể tự bù phần bán vượt", L.cost, 350000);
-  checkBalance("tồn âm rồi nhập về", L);
+  // 2 cái bán vượt không có giá vốn thật -> không rút giá giả khỏi bể;
+  // lô 3tr/10 cái nằm trong bể cho 8 cái còn lại. Sửa đúng = lùi ngày phiếu nhập.
+  check("giá vốn = 3tr/8, bể không bị nhiễm giá giả", L.cost, 375000);
+  check("tồn 8", L.qty, 8);
 }
 
 T("11. Kiểm kho (thừa/thiếu) không làm đổi giá vốn");
@@ -271,6 +273,39 @@ T("21. Nhiều dòng hàng 1 phiếu, chiết khấu phân bổ theo tỉ lệ t
   check("dòng A giá vốn 90k", L.itemCost(p.ids[0]), 90000);
   check("dòng B giá vốn 180k", L.itemCost(p.ids[1]), 180000);
   check("tổng tiền chi = 1,8tr", L.spent, 1800000);
+}
+
+T("22. ⭐ Bán TRƯỚC khi ghi phiếu nhập: giá đặt tay không được nhiễm vào bể (ca METHYST)");
+{
+  const L = new Ledger(999999); // giá vốn đặt tay bậy
+  L.sale([{ qty: 1, price: 1 }]);
+  L.sale([{ qty: 1, price: 0 }]);
+  L.purchase([{ qty: 10, price: 0 }]);
+  for (let i = 0; i < 8; i++) L.sale([{ qty: 1, price: 100000 }]);
+  L.purchase([{ qty: 10, price: 100000 }], 100000); // thực 90k
+  L.sale([{ qty: 5, price: 150000 }]);
+  L.purchase([{ qty: 5, price: 90000 }], 50000);    // thực 80k
+  L.sale([{ qty: 5, price: 150000 }]);
+  check("tồn 5", L.qty, 5);
+  check("giá vốn = (5×90k + 5×80k)/10 = 85k, không dính 999999", L.cost, 85000);
+  check("giá trị tồn = 5 × 85k", L.value, 425000);
+}
+
+T("23. Bán vượt rồi SỬA LẠI bằng cách lùi ngày phiếu nhập → chính xác tuyệt đối");
+{
+  const L = new Ledger();
+  const [s] = L.sale([{ qty: 12, price: 200000 }], "2026-03-02 10:00:00");
+  L.purchase([{ qty: 10, price: 100000 }], 0, "2026-03-01 09:00:00"); // ghi muộn, lùi ngày
+  L.purchase([{ qty: 10, price: 300000 }], 0, "2026-03-03 09:00:00");
+  check("đơn bán chịu giá vốn lô 1", L.itemCost(s), 100000);
+  check("giá vốn hiện hành = 3tr/8... không: (−2 vượt → lô 2 gánh)", L.cost, 375000);
+  const M = new Ledger();
+  M.purchase([{ qty: 12, price: 100000 }], 0, "2026-03-01 09:00:00");
+  const [s2] = M.sale([{ qty: 12, price: 200000 }], "2026-03-02 10:00:00");
+  M.purchase([{ qty: 10, price: 300000 }], 0, "2026-03-03 09:00:00");
+  check("ghi đủ hàng trước khi bán: giá vốn = 300k sạch", M.cost, 300000);
+  check("đơn bán = 100k", M.itemCost(s2), 100000);
+  checkBalance("ghi đúng thứ tự thì cân sổ", M);
 }
 
 console.log(`\n${"=".repeat(50)}\nTỔNG: ${pass} PASS, ${fail} FAIL`);

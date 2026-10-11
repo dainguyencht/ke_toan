@@ -118,6 +118,14 @@ export function replayCostHistory(
 
   const avgNow = () => (qty > 0 ? Math.max(0, value / qty) : lastAvg);
 
+  // Bể chỉ theo dõi hàng THỰC CÓ. Bán/xuất khi tồn <= 0 (bán quá tay, ghi phiếu
+  // nhập muộn) thì phần vượt không có giá vốn thật - KHÔNG được rút giá giả
+  // (lastAvg/giá đặt tay) khỏi bể, nếu không bể âm vĩnh viễn và kẹp mọi giá vốn
+  // sau về 0. Phần vượt vẫn ghi giá vốn = bình quân hiện hành lên dòng phiếu
+  // để báo cáo có số, còn bể để lô nhập sau tự gánh. Cách sửa đúng của người
+  // dùng là lùi ngày phiếu nhập - replay sẽ ra kết quả chính xác.
+  const onHand = () => Math.max(0, qty);
+
   for (const e of sortEvents(events)) {
     if (e.kind === "purchase") {
       const unitReal = discountedUnitCost(e.price, e.orderSubtotal, e.orderTotal);
@@ -128,22 +136,24 @@ export function replayCostHistory(
       itemCosts.set(e.itemId, unitReal);
     } else if (e.kind === "adjust") {
       const avg = avgNow();
+      const before = onHand();
       qty += e.qtyChange;
-      value += e.qtyChange * avg;
+      // chỉ tính phần thực sự vào/ra khỏi kho dương
+      value += (onHand() - before) * avg;
     } else {
-      // sale / return: ra-vào theo bình quân hiện hành
       const avg = avgNow();
       const qtyBase = e.qty * e.factor;
       const costPerSellUnit = avg * e.factor;
+      const before = onHand();
       qty += e.direction * qtyBase;
-      value += e.direction * qtyBase * avg;
+      value += (onHand() - before) * avg;
       itemCosts.set(e.itemId, costPerSellUnit);
       if (e.kind === "sale") {
         cogs += e.qty * costPerSellUnit;
       } else if (e.direction === 1) {
         cogs -= e.qty * costPerSellUnit; // KH trả lại: bớt giá vốn đã bán
       } else {
-        spent -= qtyBase * avg; // trả NCC: thu hồi tiền hàng
+        spent -= Math.min(qtyBase, before) * avg; // trả NCC: thu hồi tiền hàng
       }
     }
     if (qty > 0) lastAvg = Math.max(0, value / qty);

@@ -185,12 +185,51 @@ export async function recomputeProductCostByVariant(variantId: number): Promise<
   if (rows[0]) await recomputeProductCost(rows[0].product_id);
 }
 
-/** Phát lại cho MỌI sản phẩm - chạy 1 lần sau nâng cấp, hoặc để tự lành. */
-export async function recomputeAllProductCosts(): Promise<number> {
+export type CostRecomputeSummary = {
+  run_id: string;
+  total: number;
+  /** Số SP có giá vốn/giá trị tồn thay đổi */
+  changed: number;
+};
+
+/**
+ * Phát lại cho MỌI sản phẩm - sau nâng cấp hoặc bấm tay ở Cài đặt.
+ * Ghi nhật ký TRƯỚC/SAU vào cost_backfill_log cho mỗi SP có thay đổi, để truy
+ * lại giá vốn cũ và khôi phục tay nếu cần.
+ */
+export async function recomputeAllProductCosts(
+  reason: "upgrade" | "manual",
+): Promise<CostRecomputeSummary> {
   const db = await getDb();
-  const rows = await db.select<{ id: number }[]>("SELECT id FROM products");
-  for (const r of rows) await recomputeProductCost(r.id);
-  return rows.length;
+  const runId = `${reason}-${Date.now()}`;
+  const before = await db.select<
+    { id: number; price_cost: number; stock_value: number }[]
+  >("SELECT id, price_cost, stock_value FROM products");
+
+  let changed = 0;
+  for (const p of before) {
+    await recomputeProductCost(p.id);
+    const after = await db.select<{ price_cost: number; stock_value: number }[]>(
+      "SELECT price_cost, stock_value FROM products WHERE id = ?",
+      [p.id],
+    );
+    const a = after[0];
+    if (!a) continue;
+    const same =
+      Math.abs((p.price_cost ?? 0) - (a.price_cost ?? 0)) < 1e-6 &&
+      Math.abs((p.stock_value ?? 0) - (a.stock_value ?? 0)) < 1e-6;
+    if (same) continue;
+    changed++;
+    await db.execute(
+      `INSERT INTO cost_backfill_log
+         (run_id, reason, product_id, old_price_cost, old_stock_value,
+          new_price_cost, new_stock_value)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [runId, reason, p.id, p.price_cost ?? 0, p.stock_value ?? 0,
+       a.price_cost ?? 0, a.stock_value ?? 0],
+    );
+  }
+  return { run_id: runId, total: before.length, changed };
 }
 
 export type StockCountRow = {

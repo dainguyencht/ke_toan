@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getDb } from "@/db/client";
+import { recomputeAllProductCosts } from "@/db/products";
+import { useQueryClient } from "@tanstack/react-query";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import {
   Download,
@@ -35,6 +37,31 @@ export default function Settings() {
   const [lowStockThreshold, setLowStockThreshold] = useState("5");
 
   const [dbPath, setDbPath] = useState<string>("");
+  const [recomputing, setRecomputing] = useState(false);
+  const qc = useQueryClient();
+
+  const handleRecomputeCost = async () => {
+    if (
+      !confirm(
+        "Tính lại giá vốn bình quân cho TOÀN BỘ sản phẩm từ lịch sử nhập/bán?\n\n" +
+          "Giá vốn, giá trị tồn kho và các báo cáo lãi sẽ cập nhật theo. " +
+          "Giá trị cũ được ghi vào nhật ký để truy lại.",
+      )
+    )
+      return;
+    setRecomputing(true);
+    try {
+      const r = await recomputeAllProductCosts("manual");
+      qc.invalidateQueries({ queryKey: ["products"] });
+      qc.invalidateQueries({ queryKey: ["reports"] });
+      qc.invalidateQueries({ queryKey: ["orders"] });
+      toast.success(`Đã tính lại ${r.total} sản phẩm, ${r.changed} sản phẩm thay đổi`);
+    } catch (err) {
+      toast.error(`Lỗi tính lại giá vốn: ${(err as Error).message}`);
+    } finally {
+      setRecomputing(false);
+    }
+  };
   const [backups, setBackups] = useState<string[]>([]);
 
   // Mật khẩu xem Tổng quan / Báo cáo
@@ -394,6 +421,10 @@ export default function Settings() {
             <Button variant="outline" onClick={handleRestore}>
               <Upload className="w-4 h-4" />
               Khôi phục từ file...
+            </Button>
+            <Button variant="outline" onClick={handleRecomputeCost} disabled={recomputing}>
+              <RefreshCw className={recomputing ? "w-4 h-4 animate-spin" : "w-4 h-4"} />
+              {recomputing ? "Đang tính lại..." : "Tính lại giá vốn"}
             </Button>
           </div>
           <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
