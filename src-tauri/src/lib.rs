@@ -252,6 +252,12 @@ pub fn run() {
             sql: include_str!("../migrations/011_cash_method.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 12,
+            description: "stock_value",
+            sql: include_str!("../migrations/012_stock_value.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

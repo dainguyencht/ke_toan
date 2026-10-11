@@ -1,5 +1,6 @@
 import { getDb } from "./client";
 import type { Product, ProductVariant } from "@/domain/types";
+import { replayCostHistory, type CostEvent } from "@/domain/costing";
 import type { UnitInput } from "./units";
 
 export type ProductWithStock = Product & {
@@ -56,19 +57,140 @@ export async function listProducts(search = ""): Promise<ProductWithStock[]> {
 }
 
 /**
- * Tổng giá trị hàng tồn kho theo giá vốn = Σ(stock_qty × giá vốn).
- * Dùng giá vốn variant nếu có, không thì fallback giá vốn product.
- * Tính trên toàn bộ SP chưa ẩn (không theo filter/limit của danh sách).
+ * Tổng giá trị hàng tồn kho = tổng bể giá trị của các SP chưa ẩn.
+ * Lấy thẳng products.stock_value (bình quân gia quyền) thay vì nhân
+ * tồn × giá vốn - tích số bị lệch do làm tròn giá vốn bình quân.
  */
 export async function getTotalStockValue(): Promise<number> {
   const db = await getDb();
   const rows = await db.select<{ value: number }[]>(
-    `SELECT COALESCE(SUM(v.stock_qty * COALESCE(v.price_cost, p.price_cost)), 0) AS value
-     FROM product_variants v
-     JOIN products p ON p.id = v.product_id
+    `SELECT COALESCE(SUM(MAX(p.stock_value, 0)), 0) AS value
+     FROM products p
      WHERE p.is_archived = 0`,
   );
   return rows[0]?.value ?? 0;
+}
+
+/**
+ * Tính lại giá vốn của 1 sản phẩm bằng cách phát lại toàn bộ lịch sử kho
+ * (xem src/domain/costing.ts). Ghi lại products.stock_value / price_cost
+ * (bể giá trị + giá vốn bình quân hiện hành) và order_items.cost của các dòng
+ * phiếu NHẬP (= giá nhập thực đã trừ chiết khấu, để hiển thị).
+ *
+ * Lãi của đơn bán KHÔNG lấy từ order_items.cost mà tính trực tiếp theo
+ * products.price_cost hiện hành trong báo cáo (yêu cầu: lợi nhuận từ trước đến
+ * nay luôn theo giá vốn mới nhất). Vì vậy giá vốn đổi là mọi báo cáo đổi theo,
+ * không cần đồng bộ gì thêm.
+ *
+ * GỌI SAU MỌI biến động kho của sản phẩm (nhập, bán, trả, huỷ, kiểm kho...).
+ * Rẻ: 3 query + vài UPDATE, lịch sử 1 SP của hộ kinh doanh chỉ vài trăm dòng.
+ */
+export async function recomputeProductCost(productId: number): Promise<void> {
+  const db = await getDb();
+
+  const items = await db.select<
+    {
+      item_id: number;
+      created_at: string;
+      type: "sale" | "purchase" | "return";
+      customer_id: number | null;
+      qty: number;
+      price: number;
+      cost: number;
+      unit_factor: number;
+      subtotal: number;
+      total: number;
+    }[]
+  >(
+    `SELECT i.id AS item_id, o.created_at, o.type, o.customer_id,
+            i.qty, i.price, i.cost, COALESCE(i.unit_factor, 1) AS unit_factor,
+            o.subtotal, o.total
+     FROM order_items i
+     JOIN orders o ON o.id = i.order_id
+     JOIN product_variants v ON v.id = i.variant_id
+     WHERE v.product_id = ? AND o.status != 'cancelled'`,
+    [productId],
+  );
+  const adjusts = await db.select<
+    { id: number; created_at: string; qty_change: number }[]
+  >(
+    `SELECT m.id, m.created_at, m.qty_change
+     FROM stock_movements m
+     JOIN product_variants v ON v.id = m.variant_id
+     WHERE v.product_id = ?
+       AND (m.ref_table IS NULL OR m.ref_table != 'orders')`,
+    [productId],
+  );
+  const prod = await db.select<{ price_cost: number }[]>(
+    "SELECT price_cost FROM products WHERE id = ?",
+    [productId],
+  );
+
+  const events: CostEvent[] = [];
+  for (const it of items) {
+    if (it.type === "purchase") {
+      events.push({
+        kind: "purchase",
+        at: it.created_at,
+        itemId: it.item_id,
+        qty: it.qty,
+        price: it.price,
+        factor: it.unit_factor,
+        orderSubtotal: it.subtotal,
+        orderTotal: it.total,
+      });
+    } else {
+      events.push({
+        kind: it.type,
+        at: it.created_at,
+        itemId: it.item_id,
+        qty: it.qty,
+        factor: it.unit_factor,
+        // bán: ra; trả hàng từ KH: vào; trả hàng cho NCC: ra
+        direction: it.type === "sale" ? -1 : it.customer_id != null ? 1 : -1,
+      });
+    }
+  }
+  for (const m of adjusts) {
+    events.push({ kind: "adjust", at: m.created_at, id: m.id, qtyChange: m.qty_change });
+  }
+
+  // Giá vốn người dùng đặt tay chỉ là mốc khi SP chưa có phiếu nhập (tồn đầu kỳ)
+  const r = replayCostHistory(events, prod[0]?.price_cost ?? 0);
+
+  await db.execute(
+    `UPDATE products
+        SET stock_value = ?, price_cost = ?, updated_at = datetime('now')
+      WHERE id = ?`,
+    [r.stockValue, r.avgCost, productId],
+  );
+  const purchaseItems = new Map(
+    items.filter((it) => it.type === "purchase").map((it) => [it.item_id, it.cost]),
+  );
+  for (const [itemId, cost] of r.itemCosts) {
+    const prev = purchaseItems.get(itemId);
+    if (prev === undefined) continue; // chỉ ghi lại dòng phiếu nhập
+    if (Math.abs(prev - cost) < 1e-6) continue;
+    await db.execute("UPDATE order_items SET cost = ? WHERE id = ?", [cost, itemId]);
+  }
+}
+
+/** Tiện cho chỗ chỉ biết variant_id. */
+export async function recomputeProductCostByVariant(variantId: number): Promise<void> {
+  const db = await getDb();
+  const rows = await db.select<{ product_id: number }[]>(
+    "SELECT product_id FROM product_variants WHERE id = ?",
+    [variantId],
+  );
+  if (rows[0]) await recomputeProductCost(rows[0].product_id);
+}
+
+/** Phát lại cho MỌI sản phẩm - chạy 1 lần sau nâng cấp, hoặc để tự lành. */
+export async function recomputeAllProductCosts(): Promise<number> {
+  const db = await getDb();
+  const rows = await db.select<{ id: number }[]>("SELECT id FROM products");
+  for (const r of rows) await recomputeProductCost(r.id);
+  return rows.length;
 }
 
 export type StockCountRow = {
@@ -154,6 +276,7 @@ export async function balanceStock(
       "UPDATE product_variants SET stock_qty = stock_qty + ? WHERE id = ?",
       [diff, e.variant_id],
     );
+    await recomputeProductCostByVariant(e.variant_id);
     adjusted++;
   }
   return adjusted;
@@ -292,6 +415,7 @@ export async function updateProduct(
       ],
     );
   }
+  await recomputeProductCost(id);
 }
 
 export async function archiveProduct(id: number): Promise<void> {
@@ -325,4 +449,5 @@ export async function setInitialStock(
     "UPDATE product_variants SET stock_qty = stock_qty + ? WHERE id = ?",
     [qty, variant.id],
   );
+  await recomputeProductCostByVariant(variant.id);
 }

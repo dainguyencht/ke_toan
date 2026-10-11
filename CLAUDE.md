@@ -16,8 +16,8 @@ npm run tauri build    # build bundle production -> src-tauri/target/release/bun
 npm run dev            # chỉ Vite (không có Tauri API, plugin-sql sẽ fail)
 ```
 
-Không có test runner, không có lint script. Typecheck qua `npm run build` (tsc chạy trước vite).
-Chạy 1 test đơn lẻ: không áp dụng.
+`npm test` chạy bộ test giá vốn bình quân gia quyền (`tests/costing.test.mjs`, 85 assertion, thuần Node - transpile `src/domain/costing.ts` bằng esbuild). `cargo test` trong `src-tauri/` chạy test backup/WAL.
+Không có lint script. Typecheck qua `npm run build` (tsc chạy trước vite).
 
 ## Architecture
 
@@ -44,6 +44,8 @@ Vài migration là recompute/backfill (006, 007, 008, 010) - chạy lại logic 
 - **Tồn kho:** `stock_movements` là source of truth. `product_variants.stock_qty` chỉ là cache, rebuild được bằng SUM(qty_change). Mọi thay đổi kho phải ghi 1 movement.
 - **Công nợ:** `customers.debt_amount` / `suppliers.debt_amount` là cache. Sau MỌI mutation (tạo/huỷ đơn, thu/chi, điều chỉnh) phải gọi `recomputeAndSetContactDebt()` ([db/orders.ts](src/db/orders.ts)) - nó tính lại từ timeline visible (orders != cancelled + cash liên kết) nên luôn khớp, chống lệch do edge case.
 - **Snapshot:** đơn hàng snapshot giá trị tại thời điểm chốt - `order_items.cost` (tính lãi), `unit_name`/`unit_factor` (đơn vị bán), `orders.snapshot_debt` (nợ cũ trước phiếu). Không tính ngược từ giá hiện tại.
+- **Giá vốn:** bình quân gia quyền, tính bằng cách **phát lại toàn bộ lịch sử kho** của SP ([domain/costing.ts](src/domain/costing.ts) `replayCostHistory`, thuần) rồi ghi `products.stock_value` + `price_cost` qua `recomputeProductCost` ([db/products.ts](src/db/products.ts)). **Gọi sau MỌI biến động kho** (nhập/bán/trả/huỷ/kiểm kho/tồn đầu/xoá điều chỉnh/sửa SP) - tự lành, xử lý được phiếu lùi ngày và huỷ phiếu. Nhập nạp theo giá đã phân bổ chiết khấu phiếu; bán/trả/kiểm kho ra-vào theo bình quân tại thời điểm đó; phiếu huỷ bị bỏ qua. `order_items.cost` của phiếu nhập = giá nhập thực; của phiếu bán **không dùng để tính lãi**.
+- **Lợi nhuận luôn theo giá vốn HIỆN HÀNH** (quyết định của chủ app): mọi báo cáo lãi tính `qty × unit_factor × products.price_cost`, join thẳng bảng products - không snapshot. Hệ quả chấp nhận: nhập lô giá khác → lãi các đơn cũ đổi theo. Giá vốn đặt tay trong form SP chỉ là mốc khi SP chưa có phiếu nhập (tồn đầu kỳ); có phiếu nhập rồi thì bị bình quân ghi đè.
 - **Điều chỉnh nợ:** chỉnh tay dư nợ tạo 1 phiếu `debt_adjustments` (audit trail), hiện trong timeline.
 
 ### Đơn vị bán (multi-unit)

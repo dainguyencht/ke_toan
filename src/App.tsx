@@ -1,4 +1,7 @@
+import { useEffect } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { ensureCostBackfill } from "@/db/costBackfill";
 import Sidebar from "@/components/Sidebar";
 import { PasswordGate } from "@/components/PasswordGate";
 import Dashboard from "@/pages/Dashboard";
@@ -12,6 +15,17 @@ import PrintInvoice from "@/pages/PrintInvoice";
 
 export default function App() {
   const loc = useLocation();
+  const qc = useQueryClient();
+
+  // Phát lại giá vốn 1 lần sau nâng cấp, rồi làm mới các màn đang hiện
+  useEffect(() => {
+    ensureCostBackfill()
+      .then(() => {
+        qc.invalidateQueries({ queryKey: ["products"] });
+        qc.invalidateQueries({ queryKey: ["reports"] });
+      })
+      .catch((err) => console.error("[costBackfill] lỗi:", err));
+  }, [qc]);
   if (loc.pathname.startsWith("/print-invoice")) {
     return (
       <Routes>

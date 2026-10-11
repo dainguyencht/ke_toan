@@ -1,13 +1,14 @@
 {
   "name": "ke_toan",
   "private": true,
-  "version": "0.1.41",
+  "version": "0.1.42",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test": "esbuild src/domain/costing.ts --format=esm --outfile=node_modules/.cache/costing.mjs --log-level=error && node tests/costing.test.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

@@ -10,6 +10,8 @@ import type {
 } from "@/domain/types";
 import { dbDateTime } from "@/lib/utils";
 import { listUnitsOfProduct } from "./units";
+import { recomputeProductCostByVariant } from "./products";
+import { discountedUnitCost } from "@/domain/costing";
 
 export type OrderListRow = Order & {
   partner_name: string | null; // tên KH hoặc NCC
@@ -200,6 +202,9 @@ export async function createPurchase(input: PurchaseInput): Promise<number> {
   for (const line of input.items) {
     const lineTotal = line.qty * line.price;
     const qtyBase = line.qty * line.unit_factor;
+    // Giá nhập THỰC = giá dòng đã phân bổ chiết khấu cả phiếu. Lưu vào
+    // order_items.cost để khi huỷ phiếu còn rút đúng giá trị đã nạp vào kho.
+    const realUnitCost = discountedUnitCost(line.price, subtotal, total);
     await db.execute(
       `INSERT INTO order_items
         (order_id, variant_id, qty, price, cost, discount, total, unit_name, unit_factor)
@@ -209,7 +214,7 @@ export async function createPurchase(input: PurchaseInput): Promise<number> {
         line.variant_id,
         line.qty,
         line.price,
-        line.price,
+        realUnitCost,
         lineTotal,
         line.unit_name,
         line.unit_factor,
@@ -230,13 +235,8 @@ export async function createPurchase(input: PurchaseInput): Promise<number> {
       `UPDATE product_variants SET stock_qty = stock_qty + ? WHERE id = ?`,
       [qtyBase, line.variant_id],
     );
-    // Cập nhật giá vốn cho product theo giá nhập của 1 base unit
-    const costPerBase = line.unit_factor > 0 ? line.price / line.unit_factor : line.price;
-    await db.execute(
-      `UPDATE products SET price_cost = ?, updated_at = datetime('now')
-       WHERE id = (SELECT product_id FROM product_variants WHERE id = ?)`,
-      [costPerBase, line.variant_id],
-    );
+    // Phát lại giá vốn bình quân của SP (gồm phân bổ chiết khấu phiếu này)
+    await recomputeProductCostByVariant(line.variant_id);
   }
 
   // 3. Sổ quỹ: ghi chi cho số tiền thực đã trả (có thể > total nếu trả dư trừ nợ cũ)
@@ -375,6 +375,7 @@ export async function createSale(input: SaleInput): Promise<number> {
       `UPDATE product_variants SET stock_qty = stock_qty - ? WHERE id = ?`,
       [qtyBase, line.variant_id],
     );
+    await recomputeProductCostByVariant(line.variant_id);
   }
 
   // 3. Sổ quỹ: ghi thu cho số tiền thực đã nhận (có thể > total nếu thu dư trừ nợ cũ)
@@ -552,6 +553,7 @@ export async function createReturn(input: ReturnInput): Promise<number> {
       `UPDATE product_variants SET stock_qty = stock_qty + ? WHERE id = ?`,
       [sign * qtyBase, line.variant_id],
     );
+    await recomputeProductCostByVariant(line.variant_id);
   }
 
   // 3. Cash transaction (chiều theo loại)
@@ -880,6 +882,8 @@ export async function deleteStockAdjustment(movementId: number): Promise<void> {
      WHERE id = ?`,
     [variant_id, variant_id],
   );
+
+  await recomputeProductCostByVariant(variant_id);
 }
 
 /**
@@ -1006,6 +1010,7 @@ export async function cancelOrder(id: number): Promise<void> {
       `UPDATE product_variants SET stock_qty = stock_qty + ? WHERE id = ?`,
       [reverseQty, it.variant_id],
     );
+    await recomputeProductCostByVariant(it.variant_id);
   }
 
   // 2. Đảo sổ quỹ
@@ -1173,15 +1178,24 @@ export async function loadOrderForEdit(
 }
 
 export async function getOrderItems(orderId: number): Promise<
-  Array<OrderItem & { sku: string; product_name: string; base_unit: string }>
+  Array<
+    OrderItem & {
+      sku: string;
+      product_name: string;
+      base_unit: string;
+      /** Giá vốn bình quân HIỆN HÀNH của SP (đơn vị gốc) - lãi tính theo đây */
+      current_cost: number;
+    }
+  >
 > {
   const db = await getDb();
   return await db.select(
     `SELECT
        i.*,
-       v.sku    AS sku,
-       p.name   AS product_name,
-       p.unit   AS base_unit
+       v.sku        AS sku,
+       p.name       AS product_name,
+       p.unit       AS base_unit,
+       p.price_cost AS current_cost
      FROM order_items i
      JOIN product_variants v ON v.id = i.variant_id
      JOIN products p         ON p.id = v.product_id

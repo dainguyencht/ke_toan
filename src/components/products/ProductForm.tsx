@@ -232,7 +232,7 @@ export function ProductForm({ open, onOpenChange, product }: Props) {
                 placeholder="VD: m², kg, cái"
               />
             </Field>
-            <Field label="Giá vốn (VND)">
+            <Field label="Giá vốn (VND) - tự tính bình quân từ phiếu nhập; số này chỉ dùng khi SP chưa có phiếu nhập (tồn đầu kỳ)">
               <NumberInput
                 value={Number(form.price_cost) || 0}
                 onChange={(n) => set("price_cost", String(n))}

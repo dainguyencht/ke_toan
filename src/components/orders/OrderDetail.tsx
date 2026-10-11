@@ -155,7 +155,7 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
                     <TH className="text-right">Đơn giá</TH>
                     {order.type === "sale" && (
                       <TH className="text-right">
-                        <Abbr title="Giá vốn - Giá nhập hàng. Dùng tính lãi gộp.">
+                        <Abbr title="Giá vốn bình quân HIỆN HÀNH của sản phẩm. Lãi gộp luôn tính theo giá này, kể cả đơn cũ.">
                           Giá vốn
                         </Abbr>
                       </TH>
@@ -169,7 +169,7 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
                     const qtyBase = it.qty * factor;
                     const isConverted = it.unit_name !== it.base_unit;
                     const pricePerBase = factor > 0 ? it.price / factor : it.price;
-                    const costPerBase = factor > 0 ? it.cost / factor : it.cost;
+                    const costPerBase = it.current_cost ?? 0; // giá vốn hiện hành
                     return (
                       <TR key={it.id}>
                         <TD className="font-mono text-xs">{it.sku}</TD>
@@ -184,7 +184,7 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
                               {formatNumber(it.qty)} {it.unit_name}
                             </span>
                           ) : (
-                            <span className="text-neutral-400">—</span>
+                            <span className="text-neutral-400">-</span>
                           )}
                         </TD>
                         <TD className="text-right tabular-nums">
@@ -208,7 +208,7 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
                             </div>
                             {isConverted && (
                               <div className="text-xs text-neutral-400">
-                                = {formatVND(it.cost)}/{it.unit_name}
+                                = {formatVND(costPerBase * factor)}/{it.unit_name}
                               </div>
                             )}
                           </TD>
