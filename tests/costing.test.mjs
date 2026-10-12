@@ -137,9 +137,10 @@ T("10. Bán quá tay (tồn âm) rồi nhập về");
   check("tồn âm", L.qty, -2);
   check("đơn bán quá tay vẫn chịu giá vốn 100k", L.itemCost(s), 100000);
   L.purchase([{ qty: 10, price: 300000 }]);
-  // 2 cái bán vượt không có giá vốn thật -> không rút giá giả khỏi bể;
-  // lô 3tr/10 cái nằm trong bể cho 8 cái còn lại. Sửa đúng = lùi ngày phiếu nhập.
-  check("giá vốn = 3tr/8, bể không bị nhiễm giá giả", L.cost, 375000);
+  // 2 cái lấp lỗ âm đã bán rồi (giá vốn 100k lúc đó) → không dồn giá trị của
+  // chúng lên 8 cái còn lại. Giá vốn = đúng giá lô mới.
+  check("giá vốn = giá lô mới 300k, không bị dồn", L.cost, 300000);
+  check("giá trị tồn = 8 × 300k", L.value, 2400000);
   check("tồn 8", L.qty, 8);
 }
 
@@ -300,7 +301,7 @@ T("23. Bán vượt rồi SỬA LẠI bằng cách lùi ngày phiếu nhập →
   L.purchase([{ qty: 10, price: 300000 }], 0, "2026-03-03 09:00:00");
   // phiếu nhập lùi ngày đứng TRƯỚC đơn bán → đơn bán tự nhận giá vốn lô 1
   check("đơn bán hồi tố theo lô 1: 100k", L.itemCost(s), 100000);
-  check("giá vốn hiện hành: 2 vượt → lô 2 gánh, 3tr/8", L.cost, 375000);
+  check("giá vốn hiện hành = giá lô 2: 300k", L.cost, 300000);
   const M = new Ledger();
   M.purchase([{ qty: 12, price: 100000 }], 0, "2026-03-01 09:00:00");
   const [s2] = M.sale([{ qty: 12, price: 200000 }], "2026-03-02 10:00:00");
@@ -308,6 +309,64 @@ T("23. Bán vượt rồi SỬA LẠI bằng cách lùi ngày phiếu nhập →
   check("ghi đủ hàng trước khi bán: giá vốn = 300k sạch", M.cost, 300000);
   check("đơn bán = 100k", M.itemCost(s2), 100000);
   checkBalance("ghi đúng thứ tự thì cân sổ", M);
+}
+
+T("24. ⭐ Đơn vị 1,44 m²/hộp: số dư float không được làm giá vốn nổ (ca SKU 2102)");
+{
+  const L = new Ledger();
+  // nhập 42 hộp rồi bán hết 42 hộp, lặp vài vòng → qty về ~0 với sai số 1e-14
+  for (let k = 0; k < 5; k++) {
+    L.purchase([{ qty: 42, price: 230000, factor: 1.44 }]);
+    L.sale([{ qty: 42, price: 331200, factor: 1.44 }]);
+  }
+  check("tồn ≈ 0", Math.abs(L.qty) < 1e-6 ? 0 : L.qty, 0);
+  check("giá vốn hiện hành không nổ (giữ giá lô cuối / m²)", L.cost, 230000 / 1.44);
+  const [s] = L.sale([{ qty: 1, price: 331200, factor: 1.44 }]);
+  check("đơn bán sau đó: giá vốn 1 hộp = giá lô cuối", L.itemCost(s), 230000);
+  check("không có số khổng lồ", L.cost < 1e9 ? 1 : 0, 1);
+}
+
+T("25. ⭐ Bán số lượng lớn trước, nhập bù sau (ca 60606 tàu): không dồn giá lên số ít còn lại");
+{
+  const L = new Ledger();
+  L.sale([{ qty: 500, price: 300000, factor: 1.44 }]);          // bán khi chưa ghi nhập
+  L.purchase([{ qty: 520, price: 210000 * 1.44, factor: 1.44 }]); // nhập bù 520 hộp @210k/m²
+  check("tồn 20 hộp = 28,8 m²", L.qty, 28.8);
+  check("giá vốn/m² = đúng giá lô, không phải ×26", L.cost, 210000);
+  const [s] = L.sale([{ qty: 10, price: 300000, factor: 1.44 }]);
+  check("bán tiếp: giá vốn 1 hộp = 210k × 1,44", L.itemCost(s), 302400);
+}
+
+T("26. ⭐ Bán nhiều tháng TRƯỚC phiếu nhập đầu tiên (ca AF5505A1): dùng giá lô nhập đầu, bỏ giá rác");
+{
+  const L = new Ledger(801116 * 1.5); // price_cost rác từ replay cũ / đặt tay
+  const [s1] = L.sale([{ qty: 192, price: 120000, factor: 1.5 }]);
+  const [s2] = L.sale([{ qty: 224, price: 123000, factor: 1.5 }]);
+  L.purchase([{ qty: 1438.5, price: 68500, factor: 1 }]); // nhập bù sau, theo m²
+  check("đơn trước phiếu nhập: giá vốn 1 hộp = 68.500 × 1,5", L.itemCost(s1), 102750);
+  check("đơn 2 cũng vậy", L.itemCost(s2), 102750);
+  check("tồn = 1438,5 − 624 m²", L.qty, 1438.5 - 416 * 1.5);
+  check("giá vốn hiện hành = giá lô", L.cost, 68500);
+  check("lãi đơn 1 dương", 192 * 120000 - 192 * L.itemCost(s1) > 0 ? 1 : 0, 1);
+}
+
+T("27. ⭐ price_cost đã nổ (10^21) không được tự nuôi khi SP có phiếu nhập (ca 2102)");
+{
+  const L = new Ledger(1.3e21);
+  const [s] = L.sale([{ qty: 28, price: 331200, factor: 1.44 }]);
+  L.returnOrder([{ qty: 4, price: 331200, factor: 1.44 }], "customer");
+  L.purchase([{ qty: 95.04, price: 195000, factor: 1 }]);
+  check("đơn bán: giá vốn 1 hộp = 195.000 × 1,44", L.itemCost(s), 280800);
+  check("giá vốn hiện hành lành lại = 195.000", L.cost, 195000);
+  check("không còn số khổng lồ", L.cost < 1e9 ? 1 : 0, 1);
+}
+
+T("28. SP chưa từng nhập vẫn dùng giá đặt tay (không có lô để nhìn tới)");
+{
+  const L = new Ledger(50000);
+  const [s] = L.sale([{ qty: 3, price: 80000 }]);
+  check("giá vốn = giá đặt tay", L.itemCost(s), 50000);
+  check("hiện hành = giá đặt tay", L.cost, 50000);
 }
 
 console.log(`\n${"=".repeat(50)}\nTỔNG: ${pass} PASS, ${fail} FAIL`);

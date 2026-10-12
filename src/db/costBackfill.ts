@@ -11,10 +11,13 @@ import { recomputeAllProductCosts } from "./products";
  * giá đã chốt - chỉ tính lại bể, không đụng giá đã chốt trên phiếu.
  * v4 (v0.1.45): hồi tố - ghi lại giá vốn cho mọi đơn bán/trả theo bình quân
  * tại thời điểm từng đơn (sửa luôn các đơn chốt sai từ v0.1.42/43).
+ * v5 (v0.1.46): sửa 3 lỗi làm lãi mọi tháng sai trên data thật - số dư float
+ * của đơn vị quy đổi làm giá vốn nổ; fallback tự nuôi từ price_cost; đơn bán
+ * trước phiếu nhập đầu dùng giá rác thay vì giá lô nhập đầu.
  */
-const KEY = "cost_backfill_v4";
+const KEY = "cost_backfill_v5";
 /** Tên file ghim - không khớp mẫu ke_toan_<số>.db nên Rust không xoay vòng. */
-const PINNED_BACKUP = "ke_toan_truoc_gia_von_v4.db";
+const PINNED_BACKUP = "ke_toan_truoc_gia_von_v5.db";
 
 /**
  * Chạy 1 lần sau khi nâng cấp lên giá vốn bình quân gia quyền:

@@ -109,14 +109,27 @@ export function replayCostHistory(
   events: CostEvent[],
   fallbackCost = 0,
 ): ReplayResult {
+  const sorted = sortEvents(events);
+
+  // Mốc giá vốn khi bể rỗng mà chưa có lịch sử:
+  //  - SP có phiếu nhập: lấy giá lô nhập ĐẦU TIÊN (nhìn tới). Rất hay gặp cảnh
+  //    bán nhiều tháng rồi mới ghi phiếu nhập bù - hàng bán ra chính là lô đó.
+  //  - SP chưa từng nhập: dùng fallbackCost (giá đặt tay trong form SP).
+  // KHÔNG được dùng price_cost do replay lần trước ghi ra làm fallback cho SP
+  // có phiếu nhập: nó tự nuôi chính nó, một lần nổ là kẹt vĩnh viễn.
+  const firstPurchase = sorted.find((e) => e.kind === "purchase");
+  const seedCost = firstPurchase
+    ? discountedUnitCost(firstPurchase.price, firstPurchase.orderSubtotal, firstPurchase.orderTotal) /
+      (firstPurchase.factor > 0 ? firstPurchase.factor : 1)
+    : safe(fallbackCost);
+
   let qty = 0;
   let value = 0;
-  let lastAvg = safe(fallbackCost);
+  let lastAvg = safe(seedCost);
   let cogs = 0;
   let spent = 0;
   const itemCosts = new Map<number, number>();
 
-  const avgNow = () => (qty > 0 ? Math.max(0, value / qty) : lastAvg);
 
   // Bể chỉ theo dõi hàng THỰC CÓ. Bán/xuất khi tồn <= 0 (bán quá tay, ghi phiếu
   // nhập muộn) thì phần vượt không có giá vốn thật - KHÔNG được rút giá giả
@@ -124,14 +137,23 @@ export function replayCostHistory(
   // sau về 0. Phần vượt vẫn ghi giá vốn = bình quân hiện hành lên dòng phiếu
   // để báo cáo có số, còn bể để lô nhập sau tự gánh. Cách sửa đúng của người
   // dùng là lùi ngày phiếu nhập - replay sẽ ra kết quả chính xác.
-  const onHand = () => Math.max(0, qty);
+  // Số lượng theo đơn vị quy đổi (vd hộp 1,44 m²) để lại số dư float cỡ 1e-14;
+  // coi như 0, nếu không value / qty nổ thành số khổng lồ.
+  const EPS = 1e-6;
+  const onHand = () => (qty > EPS ? qty : 0);
+  const avgNow = () => (qty > EPS ? Math.max(0, value / qty) : lastAvg);
 
-  for (const e of sortEvents(events)) {
+  for (const e of sorted) {
     if (e.kind === "purchase") {
       const unitReal = discountedUnitCost(e.price, e.orderSubtotal, e.orderTotal);
+      const unitRealBase = e.factor > 0 ? unitReal / e.factor : unitReal;
       const lineValue = e.qty * unitReal;
+      const before = onHand();
       qty += e.qty * e.factor;
-      value += lineValue;
+      // Chỉ nạp giá trị cho phần thực sự lên kệ. Nếu tồn đang âm (bán trước,
+      // ghi nhập sau), phần lấp lỗ âm đã bán rồi - không được dồn giá trị của
+      // nó lên số ít còn lại (bán 500 nhập 520 thì 20 cái không gánh giá 520).
+      value += (onHand() - before) * unitRealBase;
       spent += lineValue;
       itemCosts.set(e.itemId, unitReal);
     } else if (e.kind === "adjust") {
@@ -156,7 +178,8 @@ export function replayCostHistory(
         spent -= Math.min(qtyBase, before) * avg; // trả NCC: thu hồi tiền hàng
       }
     }
-    if (qty > 0) lastAvg = Math.max(0, value / qty);
+    if (qty > EPS) lastAvg = Math.max(0, value / qty);
+    else value = 0; // hết hàng (hoặc âm): bể rỗng, không giữ giá trị ma
   }
 
   return {
