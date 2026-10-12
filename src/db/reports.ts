@@ -41,7 +41,7 @@ export async function getDashboardStats(lowStockThreshold = 5): Promise<Dashboar
     db.select<{ profit: number }[]>(
       `SELECT COALESCE(
          SUM(i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)))
-         - SUM(i.qty * COALESCE(i.unit_factor, 1) * p.price_cost), 0) AS profit
+         - SUM(i.qty * i.cost), 0) AS profit
        FROM order_items i
        JOIN orders o ON o.id = i.order_id
        JOIN product_variants v ON v.id = i.variant_id
@@ -52,7 +52,7 @@ export async function getDashboardStats(lowStockThreshold = 5): Promise<Dashboar
     db.select<{ profit: number }[]>(
       `SELECT COALESCE(
          SUM(i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)))
-         - SUM(i.qty * COALESCE(i.unit_factor, 1) * p.price_cost), 0) AS profit
+         - SUM(i.qty * i.cost), 0) AS profit
        FROM order_items i
        JOIN orders o ON o.id = i.order_id
        JOIN product_variants v ON v.id = i.variant_id
@@ -222,13 +222,13 @@ export async function getProfitTotal(): Promise<ProfitTotal> {
                          WHEN o.type='return' THEN
                            -i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0))
                          ELSE 0 END), 0) AS revenue,
-       COALESCE(SUM(CASE WHEN o.type='sale' THEN  i.qty * COALESCE(i.unit_factor, 1) * p.price_cost
-                         WHEN o.type='return' THEN -i.qty * COALESCE(i.unit_factor, 1) * p.price_cost
+       COALESCE(SUM(CASE WHEN o.type='sale' THEN  i.qty * i.cost
+                         WHEN o.type='return' THEN -i.qty * i.cost
                          ELSE 0 END), 0) AS cost,
        COALESCE(SUM(CASE WHEN o.type='sale' THEN
-                           i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * COALESCE(i.unit_factor, 1) * p.price_cost
+                           i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * i.cost
                          WHEN o.type='return' THEN
-                           -(i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * COALESCE(i.unit_factor, 1) * p.price_cost)
+                           -(i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * i.cost)
                          ELSE 0 END), 0) AS profit
      FROM order_items i
      JOIN orders o ON o.id = i.order_id
@@ -273,13 +273,13 @@ export async function getProfitByProduct(
                 WHEN o.type='return' THEN
                   -i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0))
                 ELSE 0 END) AS revenue,
-       SUM(CASE WHEN o.type='sale' THEN  i.qty * COALESCE(i.unit_factor, 1) * p.price_cost
-                WHEN o.type='return' THEN -i.qty * COALESCE(i.unit_factor, 1) * p.price_cost
+       SUM(CASE WHEN o.type='sale' THEN  i.qty * i.cost
+                WHEN o.type='return' THEN -i.qty * i.cost
                 ELSE 0 END) AS cost_total,
        SUM(CASE WHEN o.type='sale' THEN
-                  i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * COALESCE(i.unit_factor, 1) * p.price_cost
+                  i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * i.cost
                 WHEN o.type='return' THEN
-                  -(i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * COALESCE(i.unit_factor, 1) * p.price_cost)
+                  -(i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * i.cost)
                 ELSE 0 END) AS profit
      FROM order_items i
      JOIN orders o           ON o.id = i.order_id
@@ -308,7 +308,7 @@ export type ProfitByCustomerRow = {
 
 /**
  * Lãi gộp theo từng khách hàng trong kỳ. Cùng công thức với getProfitByProduct:
- * doanh thu phân bổ chiết khấu phiếu theo tỉ lệ, giá vốn lấy theo products.price_cost HIỆN HÀNH (lợi nhuận từ trước đến nay luôn theo giá vốn mới nhất),
+ * doanh thu phân bổ chiết khấu phiếu theo tỉ lệ, giá vốn lấy giá ĐÃ CHỐT trên dòng phiếu lúc bán (i.cost), không hồi tố - giống KiotViet,
  * phiếu trả của KH thì trừ ngược. Đơn không gắn khách gộp vào "Khách lẻ".
  */
 export async function getProfitByCustomer(
@@ -327,13 +327,13 @@ export async function getProfitByCustomer(
                 WHEN o.type='return' THEN
                   -i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0))
                 ELSE 0 END) AS revenue,
-       SUM(CASE WHEN o.type='sale' THEN  i.qty * COALESCE(i.unit_factor, 1) * p.price_cost
-                WHEN o.type='return' THEN -i.qty * COALESCE(i.unit_factor, 1) * p.price_cost
+       SUM(CASE WHEN o.type='sale' THEN  i.qty * i.cost
+                WHEN o.type='return' THEN -i.qty * i.cost
                 ELSE 0 END) AS cost_total,
        SUM(CASE WHEN o.type='sale' THEN
-                  i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * COALESCE(i.unit_factor, 1) * p.price_cost
+                  i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * i.cost
                 WHEN o.type='return' THEN
-                  -(i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * COALESCE(i.unit_factor, 1) * p.price_cost)
+                  -(i.total * (CAST(o.total AS REAL) / NULLIF(o.subtotal, 0)) - i.qty * i.cost)
                 ELSE 0 END) AS profit
      FROM order_items i
      JOIN orders o        ON o.id = i.order_id
@@ -459,7 +459,7 @@ export async function getProfitLoss(
       params,
     ),
     db.select<{ cogs: number }[]>(
-      `SELECT COALESCE(SUM(i.qty * COALESCE(i.unit_factor, 1) * p.price_cost), 0) AS cogs
+      `SELECT COALESCE(SUM(i.qty * i.cost), 0) AS cogs
        FROM order_items i
        JOIN orders o ON o.id = i.order_id
        JOIN product_variants v ON v.id = i.variant_id
@@ -477,7 +477,7 @@ export async function getProfitLoss(
       params,
     ),
     db.select<{ cogs: number }[]>(
-      `SELECT COALESCE(SUM(i.qty * COALESCE(i.unit_factor, 1) * p.price_cost), 0) AS cogs
+      `SELECT COALESCE(SUM(i.qty * i.cost), 0) AS cogs
        FROM order_items i
        JOIN orders o ON o.id = i.order_id
        JOIN product_variants v ON v.id = i.variant_id

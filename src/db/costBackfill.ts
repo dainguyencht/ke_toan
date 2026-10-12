@@ -7,10 +7,12 @@ import { recomputeAllProductCosts } from "./products";
  * Tăng số version này mỗi khi THUẬT TOÁN giá vốn đổi, để bản mới phát lại cho
  * cả máy đã chạy backfill cũ. v1 (v0.1.42) bị lỗi: bán khi tồn <= 0 rút giá
  * đặt tay khỏi bể → bể âm, giá vốn kẹp về 0. v2 sửa bằng quy tắc hàng thực có.
+ * v3 (v0.1.44): chuyển sang chốt giá vốn lúc bán (giống KiotViet), bể rút theo
+ * giá đã chốt - chỉ tính lại bể, không đụng giá đã chốt trên phiếu.
  */
-const KEY = "cost_backfill_v2";
+const KEY = "cost_backfill_v3";
 /** Tên file ghim - không khớp mẫu ke_toan_<số>.db nên Rust không xoay vòng. */
-const PINNED_BACKUP = "ke_toan_truoc_gia_von_v2.db";
+const PINNED_BACKUP = "ke_toan_truoc_gia_von_v3.db";
 
 /**
  * Chạy 1 lần sau khi nâng cấp lên giá vốn bình quân gia quyền:

@@ -1,20 +1,22 @@
 /**
- * Giá vốn bình quân gia quyền, tính bằng cách PHÁT LẠI toàn bộ lịch sử kho của
- * 1 sản phẩm theo thứ tự thời gian (bình quân gia quyền tức thời, có hồi tố).
+ * Giá vốn bình quân gia quyền tức thời, mô hình giống KiotViet:
  *
- * Mỗi sản phẩm là một "bể" (tồn, giá trị). Duyệt từng sự kiện:
- *   - Nhập hàng   : vào bể theo giá nhập thực (đã phân bổ chiết khấu phiếu)
- *   - Bán hàng    : ra khỏi bể theo giá vốn bình quân ĐÚNG TẠI THỜI ĐIỂM ĐÓ,
- *                   và giá vốn này được ghi lại lên dòng phiếu bán
- *   - Trả hàng    : vào/ra theo bình quân tại thời điểm đó
- *   - Kiểm kho, tồn đầu kỳ: vào/ra theo bình quân tại thời điểm đó
- *   - Phiếu đã huỷ: bỏ qua hoàn toàn (cả phiếu lẫn bút toán đảo của nó)
+ *   - Nhập hàng : vào bể theo giá nhập thực (đã phân bổ chiết khấu phiếu)
+ *                 → giá vốn bình quân hiện hành đổi
+ *   - Bán hàng  : CHỐT giá vốn hiện hành lên dòng phiếu lúc tạo (snapshot),
+ *                 không bao giờ ghi đè. Bể rút ra theo đúng giá đã chốt.
+ *   - Trả hàng  : vào/ra bể theo giá đã chốt trên dòng phiếu trả
+ *   - Kiểm kho, tồn đầu kỳ: vào/ra theo bình quân hiện hành
+ *   - Phiếu huỷ : bỏ qua hoàn toàn
  *
- * Vì phát lại từ đầu, sửa/huỷ/chèn một phiếu nhập cũ sẽ tự động tính lại giá
- * vốn và lãi của MỌI đơn bán sau phiếu đó (hồi tố). Nhập lô mới sau này không
- * làm đổi lãi đơn trước - mỗi đơn vẫn chịu giá vốn tại lúc nó phát sinh.
+ * Giá vốn hiện hành (products.price_cost / stock_value) được tính bằng cách
+ * PHÁT LẠI toàn bộ lịch sử theo thứ tự thời gian, dùng giá đã chốt của từng
+ * phiếu bán - nên tự lành, xử lý được huỷ phiếu và phiếu lùi ngày, nhưng KHÔNG
+ * hồi tố lãi đơn đã bán. Sửa phiếu nhập cũ (= huỷ + tạo lại) làm chênh lệch
+ * chảy vào giá trị tồn kho hiện tại và lãi các đơn bán sau.
  *
- * Đẳng thức luôn đúng: giá vốn hàng đã bán + giá trị tồn = tiền hàng đã chi.
+ * Bể chỉ theo dõi hàng THỰC CÓ: xuất khi tồn <= 0 không rút giá khỏi bể
+ * (tránh bể âm vĩnh viễn khi bán trước lúc ghi phiếu nhập).
  *
  * Hàm thuần, không đụng DB, test bằng `npm test`.
  */
@@ -41,6 +43,8 @@ export type CostEvent =
       qty: number;
       factor: number;
       direction: 1 | -1;
+      /** Giá vốn ĐÃ CHỐT trên dòng phiếu, tính cho 1 đơn vị bán (order_items.cost) */
+      cost: number;
     }
   | {
       /** Kiểm kho / tồn đầu kỳ / điều chỉnh tay - không có thông tin giá */
@@ -56,7 +60,7 @@ export type ReplayResult = {
   stockValue: number;
   /** Giá vốn bình quân hiện hành (đơn vị gốc) */
   avgCost: number;
-  /** Giá vốn mới cho từng dòng phiếu (itemId → giá vốn 1 đơn vị bán) */
+  /** Giá nhập thực của từng dòng phiếu NHẬP (itemId → giá 1 đơn vị). Phiếu bán không có ở đây - đã chốt, không ghi đè. */
   itemCosts: Map<number, number>;
   /** Tổng giá vốn hàng đã bán (để đối chiếu), đơn vị tiền */
   cogs: number;
@@ -141,19 +145,18 @@ export function replayCostHistory(
       // chỉ tính phần thực sự vào/ra khỏi kho dương
       value += (onHand() - before) * avg;
     } else {
-      const avg = avgNow();
+      // Giá đã chốt trên phiếu (1 đơn vị bán) → quy về 1 đơn vị gốc
+      const unitCost = e.factor > 0 ? e.cost / e.factor : e.cost;
       const qtyBase = e.qty * e.factor;
-      const costPerSellUnit = avg * e.factor;
       const before = onHand();
       qty += e.direction * qtyBase;
-      value += (onHand() - before) * avg;
-      itemCosts.set(e.itemId, costPerSellUnit);
+      value += (onHand() - before) * unitCost;
       if (e.kind === "sale") {
-        cogs += e.qty * costPerSellUnit;
+        cogs += e.qty * e.cost;
       } else if (e.direction === 1) {
-        cogs -= e.qty * costPerSellUnit; // KH trả lại: bớt giá vốn đã bán
+        cogs -= e.qty * e.cost; // KH trả lại: bớt giá vốn đã bán
       } else {
-        spent -= Math.min(qtyBase, before) * avg; // trả NCC: thu hồi tiền hàng
+        spent -= Math.min(qtyBase, before) * unitCost; // trả NCC: thu hồi tiền hàng
       }
     }
     if (qty > 0) lastAvg = Math.max(0, value / qty);

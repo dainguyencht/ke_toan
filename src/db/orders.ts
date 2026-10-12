@@ -1178,24 +1178,15 @@ export async function loadOrderForEdit(
 }
 
 export async function getOrderItems(orderId: number): Promise<
-  Array<
-    OrderItem & {
-      sku: string;
-      product_name: string;
-      base_unit: string;
-      /** Giá vốn bình quân HIỆN HÀNH của SP (đơn vị gốc) - lãi tính theo đây */
-      current_cost: number;
-    }
-  >
+  Array<OrderItem & { sku: string; product_name: string; base_unit: string }>
 > {
   const db = await getDb();
   return await db.select(
     `SELECT
        i.*,
-       v.sku        AS sku,
-       p.name       AS product_name,
-       p.unit       AS base_unit,
-       p.price_cost AS current_cost
+       v.sku    AS sku,
+       p.name   AS product_name,
+       p.unit   AS base_unit
      FROM order_items i
      JOIN product_variants v ON v.id = i.variant_id
      JOIN products p         ON p.id = v.product_id

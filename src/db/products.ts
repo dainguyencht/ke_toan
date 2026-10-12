@@ -77,10 +77,9 @@ export async function getTotalStockValue(): Promise<number> {
  * (bể giá trị + giá vốn bình quân hiện hành) và order_items.cost của các dòng
  * phiếu NHẬP (= giá nhập thực đã trừ chiết khấu, để hiển thị).
  *
- * Lãi của đơn bán KHÔNG lấy từ order_items.cost mà tính trực tiếp theo
- * products.price_cost hiện hành trong báo cáo (yêu cầu: lợi nhuận từ trước đến
- * nay luôn theo giá vốn mới nhất). Vì vậy giá vốn đổi là mọi báo cáo đổi theo,
- * không cần đồng bộ gì thêm.
+ * Phiếu bán/trả CHỐT giá vốn lúc tạo (order_items.cost) và không bị ghi đè -
+ * giống KiotViet. Báo cáo lãi đọc giá đã chốt. Hàm này chỉ dùng giá đã chốt
+ * để tính lại bể giá trị + giá vốn hiện hành.
  *
  * GỌI SAU MỌI biến động kho của sản phẩm (nhập, bán, trả, huỷ, kiểm kho...).
  * Rẻ: 3 query + vài UPDATE, lịch sử 1 SP của hộ kinh doanh chỉ vài trăm dòng.
@@ -148,6 +147,7 @@ export async function recomputeProductCost(productId: number): Promise<void> {
         factor: it.unit_factor,
         // bán: ra; trả hàng từ KH: vào; trả hàng cho NCC: ra
         direction: it.type === "sale" ? -1 : it.customer_id != null ? 1 : -1,
+        cost: it.cost ?? 0, // giá vốn đã chốt lúc tạo phiếu
       });
     }
   }
