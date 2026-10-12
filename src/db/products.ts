@@ -63,10 +63,14 @@ export async function listProducts(search = ""): Promise<ProductWithStock[]> {
  */
 export async function getTotalStockValue(): Promise<number> {
   const db = await getDb();
+  // Chỉ tính SP đang có hàng: SP tồn <= 0 vẫn có thể giữ giá trị trong bể
+  // (quy tắc hàng thực có) nhưng không có hàng để định giá.
   const rows = await db.select<{ value: number }[]>(
     `SELECT COALESCE(SUM(MAX(p.stock_value, 0)), 0) AS value
      FROM products p
-     WHERE p.is_archived = 0`,
+     WHERE p.is_archived = 0
+       AND COALESCE((SELECT SUM(v.stock_qty) FROM product_variants v
+                     WHERE v.product_id = p.id), 0) > 0`,
   );
   return rows[0]?.value ?? 0;
 }
@@ -77,9 +81,9 @@ export async function getTotalStockValue(): Promise<number> {
  * (bể giá trị + giá vốn bình quân hiện hành) và order_items.cost của các dòng
  * phiếu NHẬP (= giá nhập thực đã trừ chiết khấu, để hiển thị).
  *
- * Phiếu bán/trả CHỐT giá vốn lúc tạo (order_items.cost) và không bị ghi đè -
- * giống KiotViet. Báo cáo lãi đọc giá đã chốt. Hàm này chỉ dùng giá đã chốt
- * để tính lại bể giá trị + giá vốn hiện hành.
+ * Ghi lại order_items.cost cho MỌI dòng còn hiệu lực: phiếu nhập = giá nhập
+ * thực; phiếu bán/trả = bình quân đúng tại thời điểm đó (HỒI TỐ - sửa phiếu
+ * nhập cũ làm lãi các đơn bán sau đổi theo). Báo cáo lãi đọc order_items.cost.
  *
  * GỌI SAU MỌI biến động kho của sản phẩm (nhập, bán, trả, huỷ, kiểm kho...).
  * Rẻ: 3 query + vài UPDATE, lịch sử 1 SP của hộ kinh doanh chỉ vài trăm dòng.
@@ -147,7 +151,6 @@ export async function recomputeProductCost(productId: number): Promise<void> {
         factor: it.unit_factor,
         // bán: ra; trả hàng từ KH: vào; trả hàng cho NCC: ra
         direction: it.type === "sale" ? -1 : it.customer_id != null ? 1 : -1,
-        cost: it.cost ?? 0, // giá vốn đã chốt lúc tạo phiếu
       });
     }
   }
@@ -164,13 +167,10 @@ export async function recomputeProductCost(productId: number): Promise<void> {
       WHERE id = ?`,
     [r.stockValue, r.avgCost, productId],
   );
-  const purchaseItems = new Map(
-    items.filter((it) => it.type === "purchase").map((it) => [it.item_id, it.cost]),
-  );
+  const oldCost = new Map(items.map((it) => [it.item_id, it.cost ?? 0]));
   for (const [itemId, cost] of r.itemCosts) {
-    const prev = purchaseItems.get(itemId);
-    if (prev === undefined) continue; // chỉ ghi lại dòng phiếu nhập
-    if (Math.abs(prev - cost) < 1e-6) continue;
+    const prev = oldCost.get(itemId);
+    if (prev !== undefined && Math.abs(prev - cost) < 1e-6) continue;
     await db.execute("UPDATE order_items SET cost = ? WHERE id = ?", [cost, itemId]);
   }
 }

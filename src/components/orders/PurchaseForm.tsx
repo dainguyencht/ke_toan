@@ -206,6 +206,7 @@ export function PurchaseForm({
     if (isEdit && editOrderId && editingCode) {
       const ok = confirm(
         `Cập nhật phiếu ${editingCode}\n\n` +
+        `• Giá vốn và lãi gộp của MỌI phiếu bán sau ngày phiếu này sẽ được tính lại\n` +
           `• Phiếu cũ ${editingCode} sẽ bị HỦY (tồn/sổ quỹ/công nợ đảo ngược)\n` +
           `• Một PHIẾU MỚI sẽ được tạo với dữ liệu vừa sửa\n` +
           `• Phiếu mới có MÃ MỚI khác phiếu cũ\n\n` +

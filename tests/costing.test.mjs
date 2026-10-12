@@ -56,7 +56,7 @@ T("3. Kịch bản đầy đủ: nhập → bán → nhập → bán");
   checkBalance("cuối kịch bản", L);
 }
 
-T("4. ⭐ Sửa chiết khấu phiếu nhập cũ SAU khi đã bán: lãi đơn cũ GIỮ NGUYÊN (KiotViet)");
+T("4. ⭐ HỒI TỐ: sửa chiết khấu phiếu nhập cũ SAU khi đã bán → đơn sau tính lại");
 {
   const L = new Ledger();
   const p1 = L.purchase([{ qty: 10, price: 100000 }]);
@@ -67,11 +67,11 @@ T("4. ⭐ Sửa chiết khấu phiếu nhập cũ SAU khi đã bán: lãi đơn 
   L.editPurchase(p1, [{ qty: 10, price: 100000 }], 200000); // thêm chiết khấu 200k
 
   check("tiền hàng đã chi", L.spent, 2200000);
-  check("đơn 1 vẫn chốt 100k", L.itemCost(s1), 100000);
-  check("đơn 2 vẫn chốt 125k", L.itemCost(s2), 125000);
-  check("giá vốn hàng bán không đổi", L.cogs, 900000);
-  check("chênh lệch chảy vào tồn: (2,2tr − 900k)/12", L.cost, 1300000 / 12);
-  check("giá trị tồn 1,3tr", L.value, 1300000);
+  check("đơn 1 tính lại: 80k", L.itemCost(s1), 80000);
+  check("đơn 2 tính lại: (6×80k+10×140k)/16", L.itemCost(s2), 117500);
+  check("giá vốn hàng bán mới", L.cogs, 790000);
+  check("lãi gộp mới", 8 * 200000 - L.cogs, 810000);
+  check("giá vốn tồn", L.cost, 117500);
   checkBalance("sau sửa chiết khấu", L);
 }
 
@@ -221,12 +221,11 @@ T("17. Sửa chiết khấu nhiều lần liên tiếp");
   let p = L.purchase([{ qty: 10, price: 100000 }]);
   const [s] = L.sale([{ qty: 2, price: 200000 }]);
   p = L.editPurchase(p, [{ qty: 10, price: 100000 }], 100000);
-  check("đơn bán vẫn chốt 100k", L.itemCost(s), 100000);
-  check("tồn gánh chênh: (900k − 200k)/8", L.cost, 87500); checkBalance("sửa lần 1", L);
+  check("đơn bán hồi tố 90k", L.itemCost(s), 90000); checkBalance("sửa lần 1", L);
   p = L.editPurchase(p, [{ qty: 10, price: 100000 }], 300000);
-  check("tồn: (700k − 200k)/8", L.cost, 62500); checkBalance("sửa lần 2", L);
+  check("đơn bán hồi tố 70k", L.itemCost(s), 70000); checkBalance("sửa lần 2", L);
   p = L.editPurchase(p, [{ qty: 10, price: 100000 }], 0);
-  check("về 100k", L.cost, 100000); checkBalance("sửa về 0", L);
+  check("đơn bán về 100k", L.itemCost(s), 100000); checkBalance("sửa về 0", L);
   check("tồn 8", L.qty, 8);
 }
 
@@ -238,8 +237,7 @@ T("18. ⭐ Phiếu nhập LÙI NGÀY chèn vào giữa lịch sử");
   check("trước khi chèn: đơn chịu 100k", L.itemCost(s), 100000);
   // quên nhập 1 phiếu ngày 05/01, giờ mới ghi lùi ngày
   L.purchase([{ qty: 10, price: 160000 }], 0, "2026-01-05 08:00:00");
-  check("đơn 10/01 vẫn chốt 100k (không hồi tố)", L.itemCost(s), 100000);
-  check("tồn 15, giá vốn = (2,6tr − 500k)/15", L.cost, 140000);
+  check("đơn 10/01 hồi tố theo bình quân 130k", L.itemCost(s), 130000);
   check("tồn 15", L.qty, 15);
   checkBalance("phiếu lùi ngày", L);
 }
@@ -257,7 +255,7 @@ T("19. Phiếu huỷ bị bỏ qua hoàn toàn");
 T("20. Thứ tự cùng thời điểm: nhập trước, bán sau");
 {
   const ev = sortEvents([
-    { kind: "sale", at: "t", itemId: 2, qty: 1, factor: 1, direction: -1, cost: 1 },
+    { kind: "sale", at: "t", itemId: 2, qty: 1, factor: 1, direction: -1 },
     { kind: "adjust", at: "t", id: 3, qtyChange: 1 },
     { kind: "purchase", at: "t", itemId: 1, qty: 1, price: 1, factor: 1, orderSubtotal: 1, orderTotal: 1 },
   ]);
@@ -265,7 +263,7 @@ T("20. Thứ tự cùng thời điểm: nhập trước, bán sau");
   check("bán đứng giữa", ev[1].kind === "sale" ? 1 : 0, 1);
   check("điều chỉnh cuối", ev[2].kind === "adjust" ? 1 : 0, 1);
   const r = replayCostHistory(ev);
-  check("bán cùng giây với nhập rút đúng giá đã chốt khỏi bể", r.cogs, 1);
+  check("bán cùng giây với nhập vẫn có giá vốn", r.itemCosts.get(2), 1);
   check("tồn còn 1, giá vốn 1", r.avgCost, 1);
 }
 
@@ -300,9 +298,9 @@ T("23. Bán vượt rồi SỬA LẠI bằng cách lùi ngày phiếu nhập →
   const [s] = L.sale([{ qty: 12, price: 200000 }], "2026-03-02 10:00:00");
   L.purchase([{ qty: 10, price: 100000 }], 0, "2026-03-01 09:00:00"); // ghi muộn, lùi ngày
   L.purchase([{ qty: 10, price: 300000 }], 0, "2026-03-03 09:00:00");
-  // bán lúc kho rỗng → chốt giá tay (0); phiếu nhập lùi ngày sau đó KHÔNG đổi giá đã chốt
-  check("đơn bán chốt 0 (lúc đó chưa có gì)", L.itemCost(s), 0);
-  check("giá vốn hiện hành = (1tr + 3tr − 0)/8 = 500k (bể gánh hết)", L.cost, 500000);
+  // phiếu nhập lùi ngày đứng TRƯỚC đơn bán → đơn bán tự nhận giá vốn lô 1
+  check("đơn bán hồi tố theo lô 1: 100k", L.itemCost(s), 100000);
+  check("giá vốn hiện hành: 2 vượt → lô 2 gánh, 3tr/8", L.cost, 375000);
   const M = new Ledger();
   M.purchase([{ qty: 12, price: 100000 }], 0, "2026-03-01 09:00:00");
   const [s2] = M.sale([{ qty: 12, price: 200000 }], "2026-03-02 10:00:00");

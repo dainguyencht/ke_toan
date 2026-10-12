@@ -155,7 +155,7 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
                     <TH className="text-right">Đơn giá</TH>
                     {order.type === "sale" && (
                       <TH className="text-right">
-                        <Abbr title="Giá vốn đã chốt tại thời điểm lập phiếu (bình quân gia quyền lúc đó). Lãi gộp của phiếu này không đổi về sau.">
+                        <Abbr title="Giá vốn bình quân gia quyền tại thời điểm lập phiếu. Sửa/huỷ phiếu nhập trước ngày này sẽ tính lại con số này và lãi gộp của phiếu.">
                           Giá vốn
                         </Abbr>
                       </TH>
@@ -169,7 +169,7 @@ export function OrderDetail({ open, onOpenChange, orderId }: Props) {
                     const qtyBase = it.qty * factor;
                     const isConverted = it.unit_name !== it.base_unit;
                     const pricePerBase = factor > 0 ? it.price / factor : it.price;
-                    const costPerBase = factor > 0 ? it.cost / factor : it.cost; // giá vốn đã chốt lúc bán
+                    const costPerBase = factor > 0 ? it.cost / factor : it.cost; // giá vốn tại thời điểm bán (được tính lại khi lịch sử nhập đổi)
                     return (
                       <TR key={it.id}>
                         <TD className="font-mono text-xs">{it.sku}</TD>

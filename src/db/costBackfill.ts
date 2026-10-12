@@ -9,10 +9,12 @@ import { recomputeAllProductCosts } from "./products";
  * đặt tay khỏi bể → bể âm, giá vốn kẹp về 0. v2 sửa bằng quy tắc hàng thực có.
  * v3 (v0.1.44): chuyển sang chốt giá vốn lúc bán (giống KiotViet), bể rút theo
  * giá đã chốt - chỉ tính lại bể, không đụng giá đã chốt trên phiếu.
+ * v4 (v0.1.45): hồi tố - ghi lại giá vốn cho mọi đơn bán/trả theo bình quân
+ * tại thời điểm từng đơn (sửa luôn các đơn chốt sai từ v0.1.42/43).
  */
-const KEY = "cost_backfill_v3";
+const KEY = "cost_backfill_v4";
 /** Tên file ghim - không khớp mẫu ke_toan_<số>.db nên Rust không xoay vòng. */
-const PINNED_BACKUP = "ke_toan_truoc_gia_von_v3.db";
+const PINNED_BACKUP = "ke_toan_truoc_gia_von_v4.db";
 
 /**
  * Chạy 1 lần sau khi nâng cấp lên giá vốn bình quân gia quyền:

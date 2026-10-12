@@ -38,3 +38,8 @@ CongNoChiTiet*.xlsx
 *.png
 !public/**
 !src/**
+
+# backup DB thật của user, không commit
+ke_toan_backup_*.db
+*.db-wal
+*.db-shm

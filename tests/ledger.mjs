@@ -27,31 +27,23 @@ export class Ledger {
     });
     return { ids, total };
   }
-  /** createSale: CHỐT giá vốn hiện hành lúc tạo (snapshot), không ghi đè về sau */
   sale(lines, at) {
     const t = this._at(at);
-    const avg = this.cost; // costMap đọc products.price_cost ngay trước khi ghi
     return lines.map((l) => {
       const itemId = this._id();
-      const factor = l.factor ?? 1;
-      this.events.push({ kind: "sale", at: t, itemId, qty: l.qty, factor, direction: -1,
-        cost: avg * factor });
+      this.events.push({ kind: "sale", at: t, itemId, qty: l.qty, factor: l.factor ?? 1, direction: -1 });
       return itemId;
     });
   }
   returnOrder(lines, side = "customer", at) {
     const t = this._at(at);
-    const avg = this.cost;
     return lines.map((l) => {
       const itemId = this._id();
-      const factor = l.factor ?? 1;
-      this.events.push({ kind: "return", at: t, itemId, qty: l.qty, factor,
-        direction: side === "customer" ? 1 : -1, cost: avg * factor });
+      this.events.push({ kind: "return", at: t, itemId, qty: l.qty, factor: l.factor ?? 1,
+        direction: side === "customer" ? 1 : -1 });
       return itemId;
     });
   }
-  /** Giá vốn đã chốt trên dòng phiếu bán/trả (không đổi về sau) */
-  lockedCost(itemId) { return this.events.find((e) => e.itemId === itemId)?.cost; }
   adjust(qtyChange, at) {
     const id = this._id();
     this.events.push({ kind: "adjust", at: this._at(at), id, qtyChange });
@@ -76,7 +68,8 @@ export class Ledger {
   get value() { return this.r.stockValue; }
   get cogs() { return this.r.cogs; }
   get spent() { return this.r.spent; }
-  itemCost(itemId) { return this.r.itemCosts.get(itemId) ?? this.lockedCost(itemId); }
+  /** Giá vốn trên dòng phiếu sau khi phát lại (được ghi lại mỗi lần lịch sử đổi) */
+  itemCost(itemId) { return this.r.itemCosts.get(itemId); }
   /** Đẳng thức: giá vốn đã bán + giá trị tồn = tiền hàng đã chi */
   get balance() { return this.cogs + this.value - this.spent; }
 }
