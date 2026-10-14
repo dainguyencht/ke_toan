@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getDb } from "@/db/client";
 import { recomputeAllProductCosts } from "@/db/products";
+import { exportCostChangeReport } from "@/lib/costReportExport";
 import { useQueryClient } from "@tanstack/react-query";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import {
@@ -13,6 +14,7 @@ import {
   AlertCircle,
   Lock,
   FileText,
+  FileSpreadsheet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +41,13 @@ export default function Settings() {
   const [dbPath, setDbPath] = useState<string>("");
   const [recomputing, setRecomputing] = useState(false);
   const qc = useQueryClient();
+
+  const handleExportCostReport = async () => {
+    const r = await exportCostChangeReport();
+    if (r.ok) toast.success(`Đã xuất: ${r.path}`);
+    else if (r.reason === "no-run") toast.info("Chưa có lần tính lại giá vốn nào để báo cáo");
+    else if (r.reason === "error") toast.error(`Lỗi xuất báo cáo: ${r.message}`);
+  };
 
   const handleRecomputeCost = async () => {
     if (
@@ -425,6 +434,10 @@ export default function Settings() {
             <Button variant="outline" onClick={handleRecomputeCost} disabled={recomputing}>
               <RefreshCw className={recomputing ? "w-4 h-4 animate-spin" : "w-4 h-4"} />
               {recomputing ? "Đang tính lại..." : "Tính lại giá vốn"}
+            </Button>
+            <Button variant="outline" onClick={handleExportCostReport}>
+              <FileSpreadsheet className="w-4 h-4" />
+              Xuất báo cáo giá vốn
             </Button>
           </div>
           <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">

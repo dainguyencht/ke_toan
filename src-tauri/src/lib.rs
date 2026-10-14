@@ -57,6 +57,16 @@ fn backup_db(app: AppHandle, target: String) -> Result<String, String> {
     Ok(target)
 }
 
+/// Version migration cao nhất mà binary này mang theo. Frontend so với
+/// MAX(version) trong _sqlx_migrations để phát hiện DB chưa được migrate -
+/// tauri-plugin-sql rút migrations khỏi map TRƯỚC khi chạy, nên nếu lần load
+/// đầu lỗi (vd checksum lệch do DB tạo trên Windows CRLF, mở trên Mac LF) thì
+/// các lần load sau vẫn thành công mà không migrate, app chạy với DB thiếu bảng.
+#[tauri::command]
+fn latest_migration_version() -> i64 {
+    migrations().iter().map(|m| m.version).max().unwrap_or(0)
+}
+
 /// Tạo thư mục (kể cả cha) nếu chưa có.
 #[tauri::command]
 fn ensure_dir(path: String) -> Result<(), String> {
@@ -199,9 +209,9 @@ fn run_auto_backup(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    let migrations = vec![
+/// Danh sách migration, dùng chung cho app và test.
+fn migrations() -> Vec<Migration> {
+    vec![
         Migration {
             version: 1,
             description: "init_schema",
@@ -280,7 +290,18 @@ pub fn run() {
             sql: include_str!("../migrations/013_cost_backfill_log.sql"),
             kind: MigrationKind::Up,
         },
-    ];
+        Migration {
+            version: 14,
+            description: "cost_backfill_item_log",
+            sql: include_str!("../migrations/014_cost_backfill_item_log.sql"),
+            kind: MigrationKind::Up,
+        },
+    ]
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let migrations = migrations();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -305,6 +326,7 @@ pub fn run() {
             backup_db,
             delete_file,
             ensure_dir,
+            latest_migration_version,
             restore_db,
             list_auto_backups,
             save_bytes,
@@ -318,12 +340,68 @@ pub fn run() {
 mod tests {
     use super::*;
 
+    /// Chạy ĐÚNG sqlx Migrator (như tauri-plugin-sql) trên DB trống: mọi
+    /// migration phải là SQL hợp lệ và chạy tới version cao nhất. Không dùng
+    /// DB thật vì checksum phụ thuộc line ending của máy đã tạo DB (CRLF trên
+    /// Windows ≠ LF trên Mac) - xem CLAUDE.md.
+    #[test]
+    fn migrator_chay_het_tren_db_trong() {
+        use sqlx::migrate::{Migration as M, MigrationType, Migrator};
+        use std::borrow::Cow;
+        #[derive(Debug)]
+        struct List(Vec<M>);
+        impl sqlx::migrate::MigrationSource<'static> for List {
+            fn resolve(self) -> futures_core::future::BoxFuture<'static, Result<Vec<M>, sqlx::error::BoxDynError>> {
+                Box::pin(async move { Ok(self.0) })
+            }
+        }
+        let list: Vec<M> = migrations()
+            .into_iter()
+            .map(|m| M::new(m.version, Cow::Owned(m.description.to_string()), MigrationType::Simple, Cow::Owned(m.sql.to_string()), false))
+            .collect();
+        let max_version = list.iter().map(|m| m.version).max().unwrap();
+        let d = tmp_dir("migrator");
+        let dst = d.join("fresh.db");
+        tauri::async_runtime::block_on(async {
+            let pool = sqlx::sqlite::SqlitePool::connect(&format!("sqlite:{}?mode=rwc", dst.display())).await.unwrap();
+            Migrator::new(List(list)).await.unwrap().run(&pool).await.expect("migrations phải chạy sạch trên DB trống");
+            let (v,): (i64,) = sqlx::query_as("SELECT MAX(version) FROM _sqlx_migrations").fetch_one(&pool).await.unwrap();
+            assert_eq!(v, max_version, "chưa chạy tới migration mới nhất");
+            // bảng của migration mới nhất phải có
+            let (n,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sqlite_master WHERE name='cost_backfill_item_log'").fetch_one(&pool).await.unwrap();
+            assert_eq!(n, 1);
+        });
+    }
+
     #[test]
     fn ten_backup_ghim_khong_bi_xoay_vong() {
         assert!(is_auto_backup_name("ke_toan_1791719495.db"));
         assert!(!is_auto_backup_name("ke_toan_truoc_gia_von_v0.1.42.db"));
         assert!(!is_auto_backup_name("ke_toan_.db"));
         assert!(!is_auto_backup_name("ke_toan_123.db-wal"));
+    }
+
+    /// Chạy migrator trên BẢN COPY DB thật đang có trong app data (nếu có) và
+    /// in lỗi ra - dùng để chẩn đoán, không fail build khi không có DB.
+    #[test]
+    fn migrator_tren_db_that_chan_doan() {
+        use sqlx::migrate::{Migration as M, MigrationType, Migrator};
+        use std::borrow::Cow;
+        let home = std::env::var("HOME").unwrap_or_default();
+        let src = PathBuf::from(home).join("Library/Application Support/com.ketoan.app/ke_toan.db");
+        if !src.exists() { return; }
+        #[derive(Debug)]
+        struct List(Vec<M>);
+        impl sqlx::migrate::MigrationSource<'static> for List {
+            fn resolve(self) -> futures_core::future::BoxFuture<'static, Result<Vec<M>, sqlx::error::BoxDynError>> { Box::pin(async move { Ok(self.0) }) }
+        }
+        let list: Vec<M> = migrations().into_iter().map(|m| M::new(m.version, Cow::Owned(m.description.to_string()), MigrationType::Simple, Cow::Owned(m.sql.to_string()), false)).collect();
+        let d = tmp_dir("migrator_real"); let dst = d.join("real.db"); fs::copy(&src, &dst).unwrap();
+        tauri::async_runtime::block_on(async {
+            let pool = sqlx::sqlite::SqlitePool::connect(&format!("sqlite:{}", dst.display())).await.unwrap();
+            let r = Migrator::new(List(list)).await.unwrap().run(&pool).await;
+            eprintln!("CHẨN ĐOÁN migrator trên DB thật → {:?}", r);
+        });
     }
 
     fn tmp_dir(name: &str) -> PathBuf {

@@ -2095,10 +2095,12 @@ dependencies = [
 
 [[package]]
 name = "ke_toan"
-version = "0.1.46"
+version = "0.1.47"
 dependencies = [
+ "futures-core",
  "serde",
  "serde_json",
+ "sqlx",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

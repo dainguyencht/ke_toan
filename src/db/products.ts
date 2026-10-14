@@ -81,14 +81,18 @@ export async function getTotalStockValue(): Promise<number> {
  * (bể giá trị + giá vốn bình quân hiện hành) và order_items.cost của các dòng
  * phiếu NHẬP (= giá nhập thực đã trừ chiết khấu, để hiển thị).
  *
- * Ghi lại order_items.cost cho MỌI dòng còn hiệu lực: phiếu nhập = giá nhập
- * thực; phiếu bán/trả = bình quân đúng tại thời điểm đó (HỒI TỐ - sửa phiếu
- * nhập cũ làm lãi các đơn bán sau đổi theo). Báo cáo lãi đọc order_items.cost.
+ * Ghi lại order_items.cost CHỈ cho dòng phiếu nhập (= giá nhập thực đã trừ
+ * chiết khấu). Phiếu bán/trả CHỐT giá vốn lúc tạo và không bị ghi đè (KiotViet):
+ * sửa phiếu nhập cũ chỉ đổi giá vốn hiện hành và các đơn bán SAU đó.
  *
  * GỌI SAU MỌI biến động kho của sản phẩm (nhập, bán, trả, huỷ, kiểm kho...).
  * Rẻ: 3 query + vài UPDATE, lịch sử 1 SP của hộ kinh doanh chỉ vài trăm dòng.
  */
-export async function recomputeProductCost(productId: number): Promise<void> {
+export async function recomputeProductCost(
+  productId: number,
+  /** Có runId → ghi giá vốn cũ/mới từng dòng phiếu vào cost_backfill_item_log */
+  runId?: string,
+): Promise<void> {
   const db = await getDb();
 
   const items = await db.select<
@@ -151,6 +155,7 @@ export async function recomputeProductCost(productId: number): Promise<void> {
         factor: it.unit_factor,
         // bán: ra; trả hàng từ KH: vào; trả hàng cho NCC: ra
         direction: it.type === "sale" ? -1 : it.customer_id != null ? 1 : -1,
+        cost: it.cost ?? 0, // giá vốn đã chốt lúc tạo phiếu
       });
     }
   }
@@ -172,6 +177,13 @@ export async function recomputeProductCost(productId: number): Promise<void> {
     const prev = oldCost.get(itemId);
     if (prev !== undefined && Math.abs(prev - cost) < 1e-6) continue;
     await db.execute("UPDATE order_items SET cost = ? WHERE id = ?", [cost, itemId]);
+    if (runId) {
+      await db.execute(
+        `INSERT INTO cost_backfill_item_log (run_id, order_item_id, old_cost, new_cost)
+         VALUES (?, ?, ?, ?)`,
+        [runId, itemId, prev ?? 0, cost],
+      );
+    }
   }
 }
 
@@ -208,7 +220,7 @@ export async function recomputeAllProductCosts(
 
   let changed = 0;
   for (const p of before) {
-    await recomputeProductCost(p.id);
+    await recomputeProductCost(p.id, runId);
     const after = await db.select<{ price_cost: number; stock_value: number }[]>(
       "SELECT price_cost, stock_value FROM products WHERE id = ?",
       [p.id],

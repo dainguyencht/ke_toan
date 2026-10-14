@@ -14,10 +14,12 @@ import { recomputeAllProductCosts } from "./products";
  * v5 (v0.1.46): sửa 3 lỗi làm lãi mọi tháng sai trên data thật - số dư float
  * của đơn vị quy đổi làm giá vốn nổ; fallback tự nuôi từ price_cost; đơn bán
  * trước phiếu nhập đầu dùng giá rác thay vì giá lô nhập đầu.
+ * v6 (v0.1.47): quay về chốt giá vốn lúc bán, không hồi tố (KiotViet). Giá vốn
+ * đã có trên phiếu bán GIỮ NGUYÊN (kết quả v5 đã đúng), chỉ tính lại bể.
  */
-const KEY = "cost_backfill_v5";
+const KEY = "cost_backfill_v6";
 /** Tên file ghim - không khớp mẫu ke_toan_<số>.db nên Rust không xoay vòng. */
-const PINNED_BACKUP = "ke_toan_truoc_gia_von_v5.db";
+const PINNED_BACKUP = "ke_toan_truoc_gia_von_v6.db";
 
 /**
  * Chạy 1 lần sau khi nâng cấp lên giá vốn bình quân gia quyền:
@@ -27,7 +29,28 @@ const PINNED_BACKUP = "ke_toan_truoc_gia_von_v5.db";
  *  3. Đánh dấu vào app_settings để không chạy lại.
  * Làm tuần tự trong 1 luồng nên không có race với auto-backup bên Rust.
  */
+/**
+ * Kiểm tra DB đã migrate tới version binary mang theo chưa. Nếu chưa → ném lỗi
+ * để App hiện cảnh báo, không để app chạy với DB thiếu bảng/cột (xem lib.rs
+ * latest_migration_version).
+ */
+export async function assertDbMigrated(): Promise<void> {
+  const db = await getDb();
+  const expected = await invoke<number>("latest_migration_version");
+  const rows = await db.select<{ v: number | null }[]>(
+    "SELECT MAX(version) AS v FROM _sqlx_migrations WHERE success = 1",
+  );
+  const actual = rows[0]?.v ?? 0;
+  if (actual < expected) {
+    throw new Error(
+      `Cơ sở dữ liệu chưa được cập nhật cấu trúc (đang ở bản ${actual}, cần ${expected}). ` +
+        `Thường do file dữ liệu được khôi phục từ máy khác. Hãy đóng app, mở lại; nếu vẫn lỗi, gửi log cho hỗ trợ.`,
+    );
+  }
+}
+
 export async function ensureCostBackfill(): Promise<void> {
+  await assertDbMigrated();
   const settings = await getAllSettings();
   if (settings[KEY]) return;
 

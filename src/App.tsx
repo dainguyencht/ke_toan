@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { ensureCostBackfill } from "@/db/costBackfill";
+import { toast } from "sonner";
 import Sidebar from "@/components/Sidebar";
 import { PasswordGate } from "@/components/PasswordGate";
 import Dashboard from "@/pages/Dashboard";
@@ -24,7 +25,10 @@ export default function App() {
         qc.invalidateQueries({ queryKey: ["products"] });
         qc.invalidateQueries({ queryKey: ["reports"] });
       })
-      .catch((err) => console.error("[costBackfill] lỗi:", err));
+      .catch((err) => {
+        console.error("[costBackfill] lỗi:", err);
+        toast.error(String((err as Error).message ?? err), { duration: 60_000 });
+      });
   }, [qc]);
   if (loc.pathname.startsWith("/print-invoice")) {
     return (
