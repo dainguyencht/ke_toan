@@ -4,14 +4,16 @@
  *
  *   - Nhập hàng : vào bể theo giá nhập thực (đã phân bổ chiết khấu phiếu)
  *   - Bán hàng  : giá vốn đã CHỐT trên dòng phiếu lúc tạo (order_items.cost,
- *                 = bình quân hiện hành lúc đó) - không bao giờ ghi đè. Bể rút
- *                 ra theo đúng giá đã chốt
- *   - Trả hàng  : vào/ra theo giá đã chốt trên dòng phiếu trả
- *   - Kiểm kho, tồn đầu kỳ: vào/ra theo bình quân hiện hành
+ *                 = bình quân hiện hành lúc đó) - không bao giờ ghi đè, chỉ
+ *                 dùng cho báo cáo lãi. Bể rút ra theo BÌNH QUÂN HIỆN HÀNH
+ *                 (bình quân bất biến khi xuất)
+ *   - Trả hàng, kiểm kho, tồn đầu kỳ: vào/ra theo bình quân hiện hành
  *   - Phiếu huỷ : bỏ qua
  *
  * Sửa/huỷ/lùi ngày phiếu nhập → chỉ giá vốn hiện hành (và các đơn bán SAU đó)
- * đổi; lãi đơn đã bán giữ nguyên, chênh lệch chảy vào giá trị tồn kho.
+ * đổi; lãi đơn đã bán giữ nguyên. Vì thế "giá vốn đã bán + giá trị tồn = tiền
+ * hàng đã chi" chỉ đúng khi không sửa phiếu nhập cũ; KHÔNG được ép đẳng thức
+ * này bằng cách rút bể theo giá chốt - cặn dồn lên vài đơn vị cuối rồi nổ.
  *
  * Bể chỉ theo dõi hàng THỰC CÓ: xuất khi tồn <= 0 không rút giá khỏi bể, hàng
  * vào chỉ nạp phần thực lên kệ; tồn |qty| < 1e-6 coi như 0 (số dư float của
@@ -66,6 +68,12 @@ export type ReplayResult = {
   cogs: number;
   /** Tổng tiền hàng đã chi cho các phiếu nhập còn hiệu lực */
   spent: number;
+  /**
+   * Bình quân hiện hành (đơn vị gốc) NGAY TRƯỚC từng dòng bán/trả (itemId →
+   * giá). Là giá mà dòng đó LẼ RA đã chốt nếu lịch sử lúc đó giống bây giờ.
+   * Chỉ để đối chiếu/sửa dòng chốt rác, không tự động ghi đè.
+   */
+  avgBeforeLine: Map<number, number>;
 };
 
 /**
@@ -133,7 +141,7 @@ export function replayCostHistory(
   let cogs = 0;
   let spent = 0;
   const itemCosts = new Map<number, number>();
-
+  const avgBeforeLine = new Map<number, number>();
 
   // Bể chỉ theo dõi hàng THỰC CÓ. Bán/xuất khi tồn <= 0 (bán quá tay, ghi phiếu
   // nhập muộn) thì phần vượt không có giá vốn thật - KHÔNG được rút giá giả
@@ -167,18 +175,24 @@ export function replayCostHistory(
       // chỉ tính phần thực sự vào/ra khỏi kho dương
       value += (onHand() - before) * avg;
     } else {
-      // Giá đã chốt trên phiếu (1 đơn vị bán) → 1 đơn vị gốc
-      const unitCost = e.factor > 0 ? e.cost / e.factor : e.cost;
+      // Bể vào/ra theo BÌNH QUÂN HIỆN HÀNH, không theo giá đã chốt trên phiếu.
+      // Giá chốt chỉ dùng cho báo cáo lãi. Nếu rút bể theo giá chốt mà giá chốt
+      // lệch bình quân (do sửa/huỷ phiếu nhập cũ, backfill...) thì mỗi lần bán
+      // để lại một ít "cặn" giá trị; khi tồn về gần 0 cặn / tồn nổ thành giá
+      // vốn khổng lồ (thực tế: 93k → 815k/m² khi tồn còn 0,195 m²). Rút theo
+      // bình quân thì bình quân bất biến khi xuất - đúng định nghĩa gia quyền.
+      const avg = avgNow();
+      avgBeforeLine.set(e.itemId, avg);
       const qtyBase = e.qty * e.factor;
       const before = onHand();
       qty += e.direction * qtyBase;
-      value += (onHand() - before) * unitCost;
+      value += (onHand() - before) * avg;
       if (e.kind === "sale") {
         cogs += e.qty * e.cost;
       } else if (e.direction === 1) {
         cogs -= e.qty * e.cost; // KH trả lại: bớt giá vốn đã bán
       } else {
-        spent -= Math.min(qtyBase, before) * unitCost; // trả NCC: thu hồi tiền hàng
+        spent -= Math.min(qtyBase, before) * avg; // trả NCC: thu hồi tiền hàng
       }
     }
     if (qty > EPS) lastAvg = Math.max(0, value / qty);
@@ -192,5 +206,6 @@ export function replayCostHistory(
     itemCosts,
     cogs,
     spent,
+    avgBeforeLine,
   };
 }

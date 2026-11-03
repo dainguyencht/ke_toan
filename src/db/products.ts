@@ -88,11 +88,25 @@ export async function getTotalStockValue(): Promise<number> {
  * GỌI SAU MỌI biến động kho của sản phẩm (nhập, bán, trả, huỷ, kiểm kho...).
  * Rẻ: 3 query + vài UPDATE, lịch sử 1 SP của hộ kinh doanh chỉ vài trăm dòng.
  */
+export type RecomputeOptions = {
+  /** Có runId → ghi giá vốn cũ/mới từng dòng phiếu vào cost_backfill_item_log */
+  runId?: string;
+  /**
+   * Chốt lại dòng bán/trả có giá vốn RÁC: lệch quá 2 lần (trên hoặc dưới) so
+   * với bình quân lẽ ra lúc đó. Chỉ dùng cho backfill nâng cấp sửa lỗi engine
+   * cũ (v7) - không bật khi tính lại tay, vì quy tắc là không ghi đè giá chốt.
+   */
+  relockAbsurd?: boolean;
+};
+
+/** Lệch quá ngưỡng này so với bình quân lẽ ra → coi là giá chốt rác. */
+export const ABSURD_COST_RATIO = 2;
+
 export async function recomputeProductCost(
   productId: number,
-  /** Có runId → ghi giá vốn cũ/mới từng dòng phiếu vào cost_backfill_item_log */
-  runId?: string,
+  opts: RecomputeOptions = {},
 ): Promise<void> {
+  const { runId, relockAbsurd = false } = opts;
   const db = await getDb();
 
   const items = await db.select<
@@ -173,9 +187,9 @@ export async function recomputeProductCost(
     [r.stockValue, r.avgCost, productId],
   );
   const oldCost = new Map(items.map((it) => [it.item_id, it.cost ?? 0]));
-  for (const [itemId, cost] of r.itemCosts) {
+  const writeItemCost = async (itemId: number, cost: number) => {
     const prev = oldCost.get(itemId);
-    if (prev !== undefined && Math.abs(prev - cost) < 1e-6) continue;
+    if (prev !== undefined && Math.abs(prev - cost) < 1e-6) return;
     await db.execute("UPDATE order_items SET cost = ? WHERE id = ?", [cost, itemId]);
     if (runId) {
       await db.execute(
@@ -183,6 +197,22 @@ export async function recomputeProductCost(
          VALUES (?, ?, ?, ?)`,
         [runId, itemId, prev ?? 0, cost],
       );
+    }
+  };
+  for (const [itemId, cost] of r.itemCosts) await writeItemCost(itemId, cost);
+
+  if (relockAbsurd) {
+    for (const it of items) {
+      if (it.type === "purchase") continue;
+      const avg = r.avgBeforeLine.get(it.item_id);
+      if (avg === undefined || avg <= 0) continue;
+      const expect = avg * it.unit_factor;
+      const locked = it.cost ?? 0;
+      if (locked <= expect * ABSURD_COST_RATIO && locked >= expect / ABSURD_COST_RATIO) continue;
+      console.warn(
+        `[recomputeProductCost] SP ${productId} dòng ${it.item_id} (${it.created_at}) giá vốn rác ${Math.round(locked)} → chốt lại ${Math.round(expect)}`,
+      );
+      await writeItemCost(it.item_id, expect);
     }
   }
 }
@@ -211,6 +241,7 @@ export type CostRecomputeSummary = {
  */
 export async function recomputeAllProductCosts(
   reason: "upgrade" | "manual",
+  opts: Pick<RecomputeOptions, "relockAbsurd"> = {},
 ): Promise<CostRecomputeSummary> {
   const db = await getDb();
   const runId = `${reason}-${Date.now()}`;
@@ -220,7 +251,7 @@ export async function recomputeAllProductCosts(
 
   let changed = 0;
   for (const p of before) {
-    await recomputeProductCost(p.id, runId);
+    await recomputeProductCost(p.id, { runId, ...opts });
     const after = await db.select<{ price_cost: number; stock_value: number }[]>(
       "SELECT price_cost, stock_value FROM products WHERE id = ?",
       [p.id],

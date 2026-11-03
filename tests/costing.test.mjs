@@ -70,9 +70,14 @@ T("4. ⭐ Sửa chiết khấu phiếu nhập cũ SAU khi đã bán: lãi đơn 
   check("đơn 1 vẫn chốt 100k", L.itemCost(s1), 100000);
   check("đơn 2 vẫn chốt 125k", L.itemCost(s2), 125000);
   check("giá vốn hàng bán không đổi", L.cogs, 900000);
-  check("chênh lệch chảy vào tồn: (2,2tr − 900k)/12", L.cost, 1300000 / 12);
-  check("giá trị tồn 1,3tr", L.value, 1300000);
-  checkBalance("sau sửa chiết khấu", L);
+  // Bể phát lại theo bình quân hiện hành: 10×80k → bán 4 (còn 6×80k) → +10×140k
+  // → (480k + 1,4tr)/16 = 117,5k → bán 4 → còn 12 × 117,5k. Chênh lệch 200k
+  // KHÔNG dồn vào 12 đơn vị còn lại (xem test 29 vì sao).
+  check("giá vốn hiện hành = bình quân phát lại 117,5k", L.cost, 117500);
+  check("giá trị tồn 12 × 117,5k", L.value, 1410000);
+  // Đẳng thức lệch đúng bằng phần giá chốt cao hơn bình quân phát lại:
+  // đơn 1: 4 × (100k − 80k) = 80k; đơn 2: 4 × (125k − 117,5k) = 30k.
+  check("đẳng thức lệch 110k = phần chốt cao hơn bình quân phát lại", L.balance, 110000);
 }
 
 T("5. ⭐ Nhập lô mới KHÔNG làm đổi lãi đơn cũ (chỉ hồi tố khi sửa)");
@@ -223,9 +228,10 @@ T("17. Sửa chiết khấu nhiều lần liên tiếp");
   const [s] = L.sale([{ qty: 2, price: 200000 }]);
   p = L.editPurchase(p, [{ qty: 10, price: 100000 }], 100000);
   check("đơn bán vẫn chốt 100k", L.itemCost(s), 100000);
-  check("tồn gánh chênh: (900k − 200k)/8", L.cost, 87500); checkBalance("sửa lần 1", L);
+  check("giá vốn hiện hành = giá lô sau sửa 90k", L.cost, 90000);
+  check("tồn 8 × 90k", L.value, 720000);
   p = L.editPurchase(p, [{ qty: 10, price: 100000 }], 300000);
-  check("tồn: (700k − 200k)/8", L.cost, 62500); checkBalance("sửa lần 2", L);
+  check("sửa lần 2: 70k", L.cost, 70000);
   p = L.editPurchase(p, [{ qty: 10, price: 100000 }], 0);
   check("về 100k", L.cost, 100000); checkBalance("sửa về 0", L);
   check("tồn 8", L.qty, 8);
@@ -240,9 +246,9 @@ T("18. ⭐ Phiếu nhập LÙI NGÀY chèn vào giữa lịch sử");
   // quên nhập 1 phiếu ngày 05/01, giờ mới ghi lùi ngày
   L.purchase([{ qty: 10, price: 160000 }], 0, "2026-01-05 08:00:00");
   check("đơn 10/01 vẫn chốt 100k (không hồi tố)", L.itemCost(s), 100000);
-  check("tồn 15, giá vốn = (2,6tr − 500k)/15", L.cost, 140000);
+  check("giá vốn hiện hành = bình quân phát lại (1tr + 1,6tr)/20 = 130k", L.cost, 130000);
   check("tồn 15", L.qty, 15);
-  checkBalance("phiếu lùi ngày", L);
+  check("tồn 15 × 130k", L.value, 1950000);
 }
 
 T("19. Phiếu huỷ bị bỏ qua hoàn toàn");

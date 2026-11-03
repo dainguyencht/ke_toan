@@ -16,10 +16,15 @@ import { recomputeAllProductCosts } from "./products";
  * trước phiếu nhập đầu dùng giá rác thay vì giá lô nhập đầu.
  * v6 (v0.1.47): quay về chốt giá vốn lúc bán, không hồi tố (KiotViet). Giá vốn
  * đã có trên phiếu bán GIỮ NGUYÊN (kết quả v5 đã đúng), chỉ tính lại bể.
+ * v7 (v0.1.48): bể rút theo bình quân hiện hành thay vì giá đã chốt - rút
+ * theo giá chốt để lại "cặn" mỗi lần bán, tồn về gần 0 thì cặn/tồn nổ (thực
+ * tế 93k → 815k/m², 1 đơn bán 47 hộp lỗ 61 tr). Đồng thời chốt lại các dòng
+ * bán/trả đã dính giá rác (lệch > 2 lần bình quân lẽ ra) - 11 dòng / 3 SP trên
+ * data thật, các dòng còn lại không đụng.
  */
-const KEY = "cost_backfill_v6";
+const KEY = "cost_backfill_v7";
 /** Tên file ghim - không khớp mẫu ke_toan_<số>.db nên Rust không xoay vòng. */
-const PINNED_BACKUP = "ke_toan_truoc_gia_von_v6.db";
+const PINNED_BACKUP = "ke_toan_truoc_gia_von_v7.db";
 
 /**
  * Chạy 1 lần sau khi nâng cấp lên giá vốn bình quân gia quyền:
@@ -64,7 +69,7 @@ export async function ensureCostBackfill(): Promise<void> {
   await db.execute(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
   console.info(`[costBackfill] đã ghim backup: ${target}`);
 
-  const r = await recomputeAllProductCosts("upgrade");
+  const r = await recomputeAllProductCosts("upgrade", { relockAbsurd: true });
   await setSetting(KEY, new Date().toISOString());
   console.info(
     `[costBackfill] phát lại giá vốn ${r.total} SP, ${r.changed} SP thay đổi (run ${r.run_id})`,
